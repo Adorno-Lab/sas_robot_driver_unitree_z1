@@ -97,7 +97,12 @@ std::tuple<VectorXd, VectorXd> DriverUnitreeZ1::_compute_control_inputs(VectorXd
     impl_->cm_->add_inequality_constraint( I_, -nq*( (q-q_max_)));
     impl_->cm_->add_inequality_constraint(-I_,  -q_dot_min);
     impl_->cm_->add_inequality_constraint( I_,   q_dot_max_);
-    auto [A, b] = impl_->cm_->get_inequality_constraints();
+    MatrixXd A;
+    VectorXd b;
+    auto inequality_constraints = impl_->cm_->get_inequality_constraints();
+    A = std::get<0>(inequality_constraints);
+    b = std::get<1>(inequality_constraints);
+    //auto [A, b] = impl_->cm_->get_inequality_constraints(); C++17
     VectorXd u = solver_->solve_quadratic_program(H_, f, A, b, Aeq, beq);
     q = q + T_*u;
     return {q, u};
