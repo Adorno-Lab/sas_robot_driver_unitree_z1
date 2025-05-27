@@ -1,0 +1,12 @@
+<launch>
+
+    <node pkg="sas_robot_driver_unitree_z1" exec="sas_robot_driver_unitree_z1_node" name="z1_1" namespace="sas_z1">
+        <param name="thread_sampling_time_sec" value="0.002" />
+        <param name="verbosity" value="true_" />
+        <param name="gripper_attached" value="true_" />
+        <param name="mode" value="PositionControl" />
+        <param name="joint_limits_min" value="[-150.0, 0.0, -160.0, -80.0, -80.0, -160.0, 0.0]" />
+        <param name="joint_limits_max" value="[150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0]" />
+    </node>
+
+</launch>
