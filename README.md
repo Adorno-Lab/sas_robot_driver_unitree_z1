@@ -18,7 +18,7 @@ cd sas_robot_driver_unitree_z1
 2. Build the docker image
    
 > [!IMPORTANT]
-> The argument of the following command sets the ROS_DOMAIND_ID
+> The argument of the following command sets the ROS_DOMAIN_ID
 
 ```shell
 sh build_sas_rd_unitree_z1_docker.sh 1
