@@ -7,7 +7,7 @@
 
 #### Prerequisites:
 - Docker installed with sudo permisions.
-- [Prepare the Unitree Z1 arm](link here).
+- Prepare the Unitree Z1 arm.
 
 1. Clone this repository
 ```shell
