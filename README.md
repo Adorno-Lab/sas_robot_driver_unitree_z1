@@ -3,13 +3,30 @@
 
 # sas_robot_driver_unitree_z1
 
+### Docker Instructions
 
+#### Prerequisites:
+- Docker installed with sudo permisions.
+- [Prepare the Unitree Z1 arm](link here).
+
+1. Clone this repository
 ```shell
+cd ~/Downloads
 git clone https://github.com/Adorno-Lab/sas_robot_driver_unitree_z1 --recursive
+cd sas_robot_driver_unitree_z1
 ```
+2. Build the docker image
 ```shell
 sh build_sas_rd_unitree_z1_docker.sh 
 ```
+3. Start the docker container
 ```shell
 sh start_sas_rd_unitree_z1_docker.sh  
+```
+4. Start the driver
+> [!CAUTION]
+> The robot will move with the next command. Be ready to perform an emergency stop!
+
+```shell
+start_ROS_drivers
 ```
