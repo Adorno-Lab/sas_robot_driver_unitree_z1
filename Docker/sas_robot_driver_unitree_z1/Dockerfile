@@ -1,6 +1,6 @@
-#FROM ros:jazzy-ros-core-noble
 FROM ubuntu:noble
-
+ARG ROS_DOMAIN_ID=1
+ENV ROS_DOMAIN_ID=$ROS_DOMAIN_ID  
 SHELL ["/bin/bash", "-c"]
 ENV BASH_ENV="/etc/bash_env"
 
@@ -60,7 +60,7 @@ RUN echo "# Source the ROS2 overlay, as instructed in https://github.com/SmartAr
 RUN echo "alias cdros2='cd ~/ros2_ws/' " >> ~/.bashrc 
 RUN echo "alias buildros2='cdros2 && colcon build && source install/setup.bash' " >> ~/.bashrc 
 # ROS DOMAIN SETUP
-RUN echo "export ROS_DOMAIN_ID=77" >> ~/.bashrc 
+RUN echo "export ROS_DOMAIN_ID=$ROS_DOMAIN_ID" >> ~/.bashrc 
 RUN echo "alias start_ROS2_drivers='cdros2 && source install/setup.bash && ros2 launch sas_robot_driver_unitree_z1 real_robot_launch.xml ' " >> ~/.bashrc 
 
 RUN source ~/.bashrc
