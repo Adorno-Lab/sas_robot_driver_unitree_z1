@@ -16,8 +16,12 @@ git clone https://github.com/Adorno-Lab/sas_robot_driver_unitree_z1 --recursive
 cd sas_robot_driver_unitree_z1
 ```
 2. Build the docker image
+   
+> [!IMPORTANT]
+> The argument of the following command sets the ROS_DOMAIND_ID
+
 ```shell
-sh build_sas_rd_unitree_z1_docker.sh 
+sh build_sas_rd_unitree_z1_docker.sh 1
 ```
 3. Start the docker container
 ```shell
