@@ -24,6 +24,9 @@ sh build_sas_rd_unitree_z1_docker.sh
 sh start_sas_rd_unitree_z1_docker.sh  
 ```
 4. Start the driver
+> [!CAUTION]
+> The robot will move with the next command. Be ready to perform an emergency stop!
+
 ```shell
 start_ROS_drivers
 ```
