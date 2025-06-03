@@ -1,18 +1,24 @@
-FROM ros:jazzy-ros-core-noble
+#FROM ros:jazzy-ros-core-noble
+FROM ubuntu:noble
 
 SHELL ["/bin/bash", "-c"]
 ENV BASH_ENV="/etc/bash_env"
-
-
-
-RUN apt-get update && apt-get install -y ros-dev-tools ros-jazzy-desktop 
-# ros-jazzy-desktop
 
 # Install dependencies
 RUN apt-get update && apt-get install -y net-tools iputils-ping \
 git nss-updatedb locate curl libpci3 vim nano terminator \
 cmake extra-cmake-modules g++ libeigen3-dev fakeroot python3-pip \
 libzmq3-dev libboost-all-dev python3-pybind11 software-properties-common 
+
+# Install ROS2 as instructed in https://ros2-tutorial.readthedocs.io/en/latest/installation.html
+RUN add-apt-repository universe
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+RUN apt update && apt upgrade -y
+RUN apt-get update && apt-get install -y ros-dev-tools 
+# ros-jazzy-desktop
+
+
 
 # Install DQ Robotics
 RUN add-apt-repository ppa:dqrobotics-dev/development 
