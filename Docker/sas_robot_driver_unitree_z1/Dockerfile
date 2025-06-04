@@ -61,7 +61,7 @@ RUN echo "alias cdros2='cd ~/ros2_ws/' " >> ~/.bashrc
 RUN echo "alias buildros2='cdros2 && colcon build && source install/setup.bash' " >> ~/.bashrc 
 # ROS DOMAIN SETUP
 RUN echo "export ROS_DOMAIN_ID=$ROS_DOMAIN_ID" >> ~/.bashrc 
-RUN echo "alias start_ROS2_drivers='cdros2 && source install/setup.bash && ros2 launch sas_robot_driver_unitree_z1 real_robot_launch.xml ' " >> ~/.bashrc 
+RUN echo "alias start_ROS2_drivers='cdros2 && source install/setup.bash && ros2 launch sas_robot_driver_unitree_z1 real_robot_launch.xml sigterm_timeout:=30' " >> ~/.bashrc 
 
 RUN source ~/.bashrc
 
