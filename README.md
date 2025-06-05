@@ -6,7 +6,7 @@
 ### Docker Instructions
 
 #### Prerequisites:
-- Docker installed with sudo permisions.
+- Docker with sudo permisions.
 - Prepare the Unitree Z1 arm.
 
 1. Clone this repository
@@ -36,5 +36,5 @@ buildros2
 > The robot will move with the next command. Be ready to perform an emergency stop!
 
 ```shell
-start_ROS_drivers
+start_ROS2_drivers
 ```
