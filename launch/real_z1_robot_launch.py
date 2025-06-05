@@ -26,8 +26,8 @@ def generate_launch_description():
                 "robot_name": "z1_1",
                 "thread_sampling_time_sec": 0.002,
                 "mode": "PositionControl",       
-                "gripper_attached", True,
-                "verbosity", True,         
+                "gripper_attached": True,
+                "verbosity": True,         
                 "joint_limits_min": [-150.0, 0.0, -160.0, -80.0, -80.0, -160.0, 0.0],
                 "joint_limits_max": [150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0],
             }]
