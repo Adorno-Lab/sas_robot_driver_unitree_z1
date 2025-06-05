@@ -29,8 +29,18 @@ RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configurati
 {
     impl_ = std::make_unique<RobotDriverUnitreeZ1::Impl>();
 
-    // I need to use the parameters of the configuration structure!
-    impl_->unitree_z1_driver_ = std::make_shared<DriverUnitreeZ1>(break_loops, DriverUnitreeZ1::MODE::PositionControl, true, true);
+    // Extract the driver mode from configuration.mode
+    DriverUnitreeZ1::MODE mode;
+    if (configuration.mode == "PositionControl")
+        mode = DriverUnitreeZ1::MODE::PositionControl;
+    else
+        throw std::runtime_error("The PositionControl mode is the only one supported!");
+
+
+    impl_->unitree_z1_driver_ = std::make_shared<DriverUnitreeZ1>(break_loops,
+                                                                  mode,
+                                                                  configuration.gripper_attached,
+                                                                  configuration.verbosity);
     joint_limits_ = configuration.joint_limits;
 }
 

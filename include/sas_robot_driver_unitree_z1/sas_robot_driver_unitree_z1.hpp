@@ -36,9 +36,9 @@ namespace sas
 
 struct RobotDriverUnitreeZ1Configuration
 {
-    std::string gripper_attached;  //const std::string gripper_attached = "true";
-    std::string mode;              //const std::string mode= "PositionControl";
-    std::string verbosity;         //const std::string verbosity = "true"
+    bool gripper_attached;  //const bool gripper_attached = = true;
+    std::string mode;       //const std::string mode= "PositionControl";
+    bool verbosity;         //const bool verbosity = true;
     std::tuple<VectorXd,VectorXd> joint_limits;
 };
 
