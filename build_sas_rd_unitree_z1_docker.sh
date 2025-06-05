@@ -1,5 +1,5 @@
 #!/bin/bash
-echo $1
+echo "ROS_DOMAIN_ID will be" $1
 # Argument validation check
 if [ $# -eq 0 ]; then
     echo "Error: No arguments provided."
