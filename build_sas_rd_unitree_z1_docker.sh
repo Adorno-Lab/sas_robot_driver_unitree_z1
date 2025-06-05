@@ -7,5 +7,5 @@ if [ $# -eq 0 ]; then
     echo "Example: sh build_sas_rd_unitree_z1_docker.sh 1"
     exit 1
 fi
-docker build -t sas_robot_driver_unitree_z1 Docker/sas_robot_driver_unitree_z1/ --build-arg ROS_DOMAIN_ID=$1
+docker build -t sas_robot_driver_unitree_z1 docker/sas_robot_driver_unitree_z1/ --build-arg ROS_DOMAIN_ID=$1
 
