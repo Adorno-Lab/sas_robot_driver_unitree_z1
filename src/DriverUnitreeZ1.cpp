@@ -356,7 +356,7 @@ void DriverUnitreeZ1::deinitialize()
     // Force this loop to keep enabled to move the robot to its initial configuration
     std::atomic_bool flag{false};
     std::cout<<"Setting home robot configuration..."<<std::endl;
-    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.8, &flag);
+    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.3, &flag);
 
     impl_->arm_->backToStart();
     impl_->arm_->setFsm(UNITREE_ARM::ArmFSMState::PASSIVE);
@@ -507,10 +507,10 @@ void DriverUnitreeZ1::move_robot_to_target_joint_positions(const VectorXd &q_tar
 {
     if (current_status_ == STATUS::INITIALIZED && mode_ == MODE::None)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.3, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, st_break_loops_);
     }else if( mode_ == MODE::PositionControl && current_status_ == STATUS::CONNECTED)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.3, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, st_break_loops_);
     }
     else
     {
