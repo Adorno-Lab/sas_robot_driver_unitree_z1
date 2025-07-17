@@ -74,7 +74,7 @@ int main(int argc, char** argv)
         RCLCPP_ERROR_STREAM_ONCE(node->get_logger(), std::string("::Exception::") + e.what());
     }
 
-    sas::display_signal_handler_none_bug_info(node);
+    // sas::display_signal_handler_none_bug_info(node); Not working anymore with the latest version of SAS
     return 0;
 
 
