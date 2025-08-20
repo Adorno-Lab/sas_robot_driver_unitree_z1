@@ -18,7 +18,7 @@ find_package(sas_robot_driver REQUIRED)
 ##########################################################
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -std=c++14 -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -std=c++17 -pthread")
 set(UNITREE_Z1_SDK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/z1_sdk/)
 include_directories(${UNITREE_Z1_SDK_DIR}/include/)
 link_directories(${UNITREE_Z1_SDK_DIR}/lib/)
@@ -43,7 +43,12 @@ target_link_libraries(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
     sas_core
+    sas_common
+    sas_conversions
     Eigen3
+    rclcpp
+    std_msgs
+
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -62,6 +67,10 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
     Eigen3
     sas_core
+    sas_common
+    sas_conversions
+    rclcpp
+    std_msgs
     )
 
 install(

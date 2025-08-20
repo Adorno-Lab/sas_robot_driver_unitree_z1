@@ -51,6 +51,8 @@ int main(int argc, char** argv)
         configuration.joint_limits = {deg2rad(sas::std_vector_double_to_vectorxd(joint_limits_min)),
                                       deg2rad(sas::std_vector_double_to_vectorxd(joint_limits_max))};
 
+        sas::get_ros_parameter(node,"robot_name", configuration.robot_name);
+
 
         sas::RobotDriverROSConfiguration robot_driver_ros_configuration;
         sas::get_ros_parameter(node,"thread_sampling_time_sec",robot_driver_ros_configuration.thread_sampling_time_sec);
@@ -58,7 +60,8 @@ int main(int argc, char** argv)
 
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Parameters OK.");
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverUnitreeZ1.");
-        auto robot_driver_unitree_z1 = std::make_shared<sas::RobotDriverUnitreeZ1>(configuration,
+        auto robot_driver_unitree_z1 = std::make_shared<sas::RobotDriverUnitreeZ1>(node,
+                                                                                   configuration,
                                                                                    &kill_this_process);
 
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverROS.");

@@ -284,14 +284,14 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 void DriverUnitreeZ1::_joint_raw_position_control_mode()
 {
     _update_q_for_numerical_integration();
-    target_joint_positions_ = q_ni_;
-    target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
+    target_joint_raw_positions_ = q_ni_;
+    target_joint_raw_velocities_ = VectorXd::Zero(target_joint_raw_positions_.size());
     target_gripper_position_ = q_gripper_ni_;
     while(!finish_motion_ or !st_break_loops_)
     {
         _update_robot_state();
-        impl_->arm_->q = target_joint_positions_;
-        impl_->arm_->qd = target_joint_velocities_;
+        impl_->arm_->q = target_joint_raw_positions_;
+        impl_->arm_->qd = target_joint_raw_velocities_;
 
         impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
 
@@ -625,10 +625,12 @@ void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_po
  * @param target_joint_velocities_rad_s The target joint velocities in rad/s.
  */
 void DriverUnitreeZ1::set_target_raw_joint_commands(const VectorXd &target_joint_positions_rad,
-                                              const VectorXd &target_joint_velocities_rad_s)
+                                                    const VectorXd &target_joint_velocities_rad_s,
+                                                    const double &gripper_position)
 {
-    target_joint_positions_  = target_joint_positions_rad;
-    target_joint_velocities_ = target_joint_velocities_rad_s;
+    target_joint_raw_positions_  = target_joint_positions_rad;
+    target_joint_raw_velocities_ = target_joint_velocities_rad_s;
+    set_gripper_position(gripper_position);
 }
 
 

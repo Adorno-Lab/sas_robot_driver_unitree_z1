@@ -92,7 +92,10 @@ private:
     void _update_q_for_numerical_integration();
 
     VectorXd target_joint_positions_;
-    VectorXd target_joint_velocities_;
+
+    VectorXd target_joint_raw_positions_;
+    VectorXd target_joint_raw_velocities_;
+
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
 
@@ -161,7 +164,9 @@ public:
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
     void set_target_raw_joint_commands(const VectorXd& target_joint_positions_rad,
-                                       const VectorXd& target_joint_velocities_rad_s);
+                                       const VectorXd& target_joint_velocities_rad_s,
+                                       const double& gripper_position);
+
 
     void set_gripper_position(const double& gripper_position);
     void set_target_joint_positions_with_gripper(const VectorXd& target_joint_positions_with_gripper_rad);
