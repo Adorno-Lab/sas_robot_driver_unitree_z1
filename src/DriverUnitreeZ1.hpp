@@ -46,7 +46,8 @@ public:
 
     enum class MODE{
         None,
-        PositionControl,
+        PositionControl,    // To command the robot using ros2 topic commands on the terminal
+        RawPositionControl, // To command the robot using a kinematic control Strategy
         VelocityControl,
         ForceControl,
     };
@@ -91,6 +92,7 @@ private:
     void _update_q_for_numerical_integration();
 
     VectorXd target_joint_positions_;
+    VectorXd target_joint_velocities_;
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
 
@@ -101,6 +103,9 @@ private:
     double gripper_velocity_measured_;
     double target_gripper_position_{0};
     bool gripper_attached_;
+    double gain_gripper_{1.0};
+
+
 
     //-------To handle the threads-----------------
     void _echo_robot_state_mode();
@@ -115,6 +120,10 @@ private:
     void _start_joint_position_control_thread();
     std::atomic<bool> finish_motion_;
     void _finish_motion();
+
+    void _start_raw_joint_position_control_thread();
+    std::thread joint_raw_position_control_mode_thread_;
+    void _joint_raw_position_control_mode();
 
     void _move_robot_to_target_joint_positions(const VectorXd& q_target, const double& gain, std::atomic_bool* break_loop);
 
@@ -151,6 +160,8 @@ public:
     void move_robot_to_target_joint_positions(const VectorXd& q_target);
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
+    void set_target_raw_joint_commands(const VectorXd& target_joint_positions_rad,
+                                       const VectorXd& target_joint_velocities_rad_s);
 
     void set_gripper_position(const double& gripper_position);
     void set_target_joint_positions_with_gripper(const VectorXd& target_joint_positions_with_gripper_rad);

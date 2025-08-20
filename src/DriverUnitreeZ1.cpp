@@ -132,6 +132,21 @@ void DriverUnitreeZ1::_update_q_for_numerical_integration()
     }
 }
 
+
+/**
+ * @brief DriverUnitreeZ1::_set_driver_mode set the mode of the driver. This method throws an exception if a mode is not supported.
+ * @param mode The driver mode. The following modes are supported:
+ *
+ *          PositionControl: Use this mode for command the robot using joint positions without specifiying joint velocities.
+ *                          In this mode, the driver uses a QP to compute the velocity commands given the target joint positions.
+ *                          The QP takes into account configuration and configuration velocity limits.
+ *                          Use this method for command the robot using ROS 2 commands in the terminal.
+ *
+ *          RawPositionControl: Use this mode for command the robot using joint positions and joint velocities. There is no QP here
+ *                              and the user must take into account configuration and configuration velocity limits. Use this method
+ *                              if you use a kinematic controller to generate the control inputs.
+ *
+ */
 void DriverUnitreeZ1::_set_driver_mode(const MODE &mode)
 {
     switch (mode){
@@ -140,6 +155,9 @@ void DriverUnitreeZ1::_set_driver_mode(const MODE &mode)
         mode_ = mode;
         break;
     case MODE::PositionControl:
+        mode_ = mode;
+        break;
+    case MODE::RawPositionControl:
         mode_ = mode;
         break;
     case MODE::VelocityControl:
@@ -176,7 +194,10 @@ void DriverUnitreeZ1::_update_robot_state()
     errorstate_ = impl_->arm_->lowstate->errorstate;
 }
 
-// This name does not make sense. I'm going to change it to echo_robot_state_mode().
+
+/**
+ * @brief DriverUnitreeZ1::_echo_robot_state_mode runs a loop to update the robot state. In this loop, the robot won't move at all.
+ */
 void DriverUnitreeZ1::_echo_robot_state_mode()
 {
     while(!finish_echo_robot_state_ or !st_break_loops_)
@@ -198,9 +219,8 @@ void DriverUnitreeZ1::_start_echo_robot_state_mode_thread()
 {
     finish_echo_robot_state_ = false;
     if (echo_robot_state_mode_thread_.joinable())
-    {
         echo_robot_state_mode_thread_.join();
-    }
+
     echo_robot_state_mode_thread_ = std::thread(&DriverUnitreeZ1::_echo_robot_state_mode, this);
 }
 
@@ -216,6 +236,10 @@ void DriverUnitreeZ1::_finish_echo_robot_state()
 }
 
 
+/**
+ * @brief DriverUnitreeZ1::_joint_position_control_mode runs a loop updating the robot state and commanding the robot.
+ *                      This method is used in the PositionControl mode.
+ */
 void DriverUnitreeZ1::_joint_position_control_mode()
 {
     _update_q_for_numerical_integration();
@@ -223,7 +247,6 @@ void DriverUnitreeZ1::_joint_position_control_mode()
     target_gripper_position_ = q_gripper_ni_;
     VectorXd q_dot;
     double q_gripper_position_dot;
-    double gain_gripper = 1.0;
     while(!finish_motion_ or !st_break_loops_)
     {
         _update_robot_state();
@@ -238,7 +261,7 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 
         if (gripper_attached_)
         {
-            q_gripper_position_dot = -gain_gripper*(q_gripper_ni_-target_gripper_position_);
+            q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-target_gripper_position_);
             q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
             impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
         }
@@ -252,18 +275,68 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 
 
 /**
+ * @brief DriverUnitreeZ1::_joint_raw_position_control_mode runs a loop updating the robot state and commanding the robot.
+ *                      This method is used in the RawPositionControl mode.
+ *
+ *                      [WARNING]---->:Be careful, you must take into account the configuration
+ *                                     and configuration velocity limits here.
+ */
+void DriverUnitreeZ1::_joint_raw_position_control_mode()
+{
+    _update_q_for_numerical_integration();
+    target_joint_positions_ = q_ni_;
+    target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
+    target_gripper_position_ = q_gripper_ni_;
+    while(!finish_motion_ or !st_break_loops_)
+    {
+        _update_robot_state();
+        impl_->arm_->q = target_joint_positions_;
+        impl_->arm_->qd = target_joint_velocities_;
+
+        impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
+
+        if (gripper_attached_)
+        {
+            double q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-target_gripper_position_);
+            q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
+            impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
+        }
+        impl_->unitree_timer_->sleep();
+    }
+    status_msg_ = "Joint raw position control finished.";
+    _show_status();
+}
+
+
+
+/**
  * @brief DriverUnitreeZ1::_start_joint_position_control_thread This method starts the control loop thread that updates
- *                      the robot state and control the robot.
+ *                      the robot state and control the robot in PositionControl.
  */
 void DriverUnitreeZ1::_start_joint_position_control_thread()
 {
     finish_motion_ = false;
     if (joint_position_control_mode_thread_.joinable())
-    {
         joint_position_control_mode_thread_.join();
-    }
+
     joint_position_control_mode_thread_ = std::thread(&DriverUnitreeZ1::_joint_position_control_mode, this);
     status_msg_ = "Starting joint position control.";
+    _show_status();
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::_start_raw_joint_position_control_thread This method starts the control loop thread that updates
+ *                      the robot state and control the robot in RawPositionControl.
+ */
+void DriverUnitreeZ1::_start_raw_joint_position_control_thread()
+{
+    finish_motion_ = false;
+    if (joint_raw_position_control_mode_thread_.joinable())
+        joint_raw_position_control_mode_thread_.join();
+
+    joint_raw_position_control_mode_thread_ = std::thread(&DriverUnitreeZ1::_joint_raw_position_control_mode, this);
+    status_msg_ = "Starting joint raw position control.";
     _show_status();
 }
 
@@ -319,18 +392,22 @@ void DriverUnitreeZ1::initialize()
             _move_robot_to_target_joint_positions(Forward_, 0.3, st_break_loops_);
         }
 
+        _finish_echo_robot_state();
 
         switch (mode_) {
         case MODE::None:
             break;
         case MODE::PositionControl:
-            _finish_echo_robot_state();
             _start_joint_position_control_thread();
+            break;
+        case MODE::RawPositionControl:
+            _start_raw_joint_position_control_thread();
             break;
         case MODE::VelocityControl:
             break;
         case MODE::ForceControl:
             break;
+
         }
         current_status_ = STATUS::INITIALIZED;
         status_msg_ = "initialized!";
@@ -356,7 +433,7 @@ void DriverUnitreeZ1::deinitialize()
     // Force this loop to keep enabled to move the robot to its initial configuration
     std::atomic_bool flag{false};
     std::cout<<"Setting home robot configuration..."<<std::endl;
-    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.3, &flag);
+    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.4, &flag);
 
     impl_->arm_->backToStart();
     impl_->arm_->setFsm(UNITREE_ARM::ArmFSMState::PASSIVE);
@@ -368,7 +445,7 @@ void DriverUnitreeZ1::deinitialize()
 
 
 /**
- * @brief DriverUnitreeZ1::disconnect
+ * @brief DriverUnitreeZ1::disconnect performs the last steps to disconnect the driver
  */
 void DriverUnitreeZ1::disconnect()
 {
@@ -376,8 +453,11 @@ void DriverUnitreeZ1::disconnect()
     _finish_echo_robot_state();
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-  if (joint_position_control_mode_thread_.joinable())
+    if (joint_position_control_mode_thread_.joinable())
          joint_position_control_mode_thread_.join();
+
+    if (joint_raw_position_control_mode_thread_.joinable())
+        joint_raw_position_control_mode_thread_.join();
 
     if (echo_robot_state_mode_thread_.joinable())
         echo_robot_state_mode_thread_.join();
@@ -388,11 +468,20 @@ void DriverUnitreeZ1::disconnect()
     //impl_->z1_controller_->stop();
 }
 
+
+/**
+ * @brief DriverUnitreeZ1::set_target_gripper_position sets the target gripper position. This method works when the
+ *              driver is in PositionControl or RawPositionControl.
+ * @param target_gripper_position The target gripper position.
+ */
 void DriverUnitreeZ1::set_target_gripper_position(const double &target_gripper_position)
 {
     target_gripper_position_ = target_gripper_position;
 }
 
+/**
+ * @brief DriverUnitreeZ1::_finish_motion sets the finish_motion_ flag to true using a for loop.
+ */
 void DriverUnitreeZ1::_finish_motion()
 {
     std::cout<<"Ending control loop..."<<std::endl;
@@ -404,6 +493,7 @@ void DriverUnitreeZ1::_finish_motion()
     finish_motion_ = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
+
 
 
 /**
@@ -526,6 +616,19 @@ void DriverUnitreeZ1::move_robot_to_target_joint_positions(const VectorXd &q_tar
 void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_positions_rad)
 {
     target_joint_positions_ = target_joint_positions_rad;
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::set_target_raw_joint commands sets the target joint position and velocities when the operation mode is RawPositionControl.
+ * @param target_joint_positions_rad The target joint positions in radians.
+ * @param target_joint_velocities_rad_s The target joint velocities in rad/s.
+ */
+void DriverUnitreeZ1::set_target_raw_joint_commands(const VectorXd &target_joint_positions_rad,
+                                              const VectorXd &target_joint_velocities_rad_s)
+{
+    target_joint_positions_  = target_joint_positions_rad;
+    target_joint_velocities_ = target_joint_velocities_rad_s;
 }
 
 
