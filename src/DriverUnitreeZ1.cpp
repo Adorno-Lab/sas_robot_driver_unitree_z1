@@ -184,6 +184,7 @@ void DriverUnitreeZ1::_update_robot_state()
 
     gripper_position_measured_ = impl_->arm_->lowstate->getGripperQ();
     gripper_velocity_measured_ = impl_->arm_->lowstate->getGripperQd();
+    gripper_torque_measured_   = impl_->arm_->lowstate->getGripperTau();
     /*
      * 0x01 : phase current is too large
      * 0x02 : phase leakage
@@ -251,7 +252,7 @@ void DriverUnitreeZ1::_joint_position_control_mode()
     {
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, target_joint_positions_, 5.0);
-        q_ni_    = std::get<0>(results);
+        q_ni_ = std::get<0>(results);
         q_dot = std::get<1>(results);
 
         impl_->arm_->q = q_ni_;
@@ -284,15 +285,14 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 void DriverUnitreeZ1::_joint_raw_position_control_mode()
 {
     _update_q_for_numerical_integration();
-    target_joint_raw_positions_ = q_ni_;
-    target_joint_raw_velocities_ = VectorXd::Zero(target_joint_raw_positions_.size());
+    target_joint_positions_ = q_ni_;
+    target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
     target_gripper_position_ = q_gripper_ni_;
     while(!finish_motion_ && !st_break_loops_)
     {
         _update_robot_state();
-        impl_->arm_->q = target_joint_raw_positions_;
-        impl_->arm_->qd = target_joint_raw_velocities_;
-
+        impl_->arm_->q = target_joint_positions_;
+        impl_->arm_->qd = target_joint_velocities_;
         impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
 
         if (gripper_attached_)
@@ -538,7 +538,7 @@ VectorXd DriverUnitreeZ1::get_joint_positions()
 }
 
 /**
- * @brief DriverUnitreeZ1::get_joint_velocities returns the meausured joint velocities.
+ * @brief DriverUnitreeZ1::get_joint_velocities returns the measured joint velocities.
  * @return a vector containing the joint velocities. This vector is 6x1 and does not include the gripper velocity.
  */
 VectorXd DriverUnitreeZ1::get_joint_velocities()
@@ -547,14 +547,28 @@ VectorXd DriverUnitreeZ1::get_joint_velocities()
 }
 
 /**
- * @brief DriverUnitreeZ1::get_joint_velocities_with_gripper returns the meausured joint velocities.
+ * @brief DriverUnitreeZ1::get_joint_velocities_with_gripper returns the measured joint velocities.
  * @return a vector containing the joint velocities. This vector is 7x1 and includes the gripper velocity.
  */
 VectorXd DriverUnitreeZ1::get_joint_velocities_with_gripper()
 {
     VectorXd joint_velocities_with_gripper = VectorXd::Zero(7);
-    joint_velocities_with_gripper << q_dot_measured_(0), q_dot_measured_(1), q_dot_measured_(2), q_dot_measured_(3), q_dot_measured_(4), q_dot_measured_(5), gripper_velocity_measured_;
+    joint_velocities_with_gripper << q_dot_measured_(0), q_dot_measured_(1), q_dot_measured_(2),
+                                     q_dot_measured_(3), q_dot_measured_(4), q_dot_measured_(5), gripper_velocity_measured_;
     return joint_velocities_with_gripper;
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::get_joint_torques_with_gripper returns the measured joint torques.
+ * @return a vector containing the joint torques. This vector is 7x1 and includes the gripper torque.
+ */
+VectorXd DriverUnitreeZ1::get_joint_torques_with_gripper()
+{
+    VectorXd joint_torques_with_gripper = VectorXd::Zero(7);
+    joint_torques_with_gripper << tau_measured_(0), tau_measured_(1), tau_measured_(2),
+        tau_measured_(3), tau_measured_(4), tau_measured_(5), gripper_torque_measured_;
+    return joint_torques_with_gripper;
 }
 
 /**
@@ -630,7 +644,7 @@ void DriverUnitreeZ1::move_to_target_joint_positions(const VectorXd &q_target)
 }
 
 /**
- * @brief DriverUnitreeZ1::set_target_joint_positions sets the target joint positions when the operation mode is PositionControl.
+ * @brief DriverUnitreeZ1::set_target_joint_positions sets the target joint positions.
  * @param target_joint_positions_rad The target joint positions in radians.
  */
 void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_positions_rad)
@@ -638,12 +652,18 @@ void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_po
     target_joint_positions_ = target_joint_positions_rad;
 }
 
-
 /**
- * @brief DriverUnitreeZ1::set_target_raw_joint commands sets the target joint position and velocities when the operation mode is RawPositionControl.
- * @param target_joint_positions_rad The target joint positions in radians.
+ * @brief DriverUnitreeZ1::set_target_joint_velocities sets the target joint velocities.
  * @param target_joint_velocities_rad_s The target joint velocities in rad/s.
  */
+void DriverUnitreeZ1::set_target_joint_velocities(const VectorXd &target_joint_velocities_rad_s)
+{
+    target_joint_velocities_ = target_joint_velocities_rad_s;
+}
+
+
+
+/*
 void DriverUnitreeZ1::set_target_raw_joint_commands(const VectorXd &target_joint_positions_rad,
                                                     const VectorXd &target_joint_velocities_rad_s,
                                                     const double &gripper_position)
@@ -652,6 +672,7 @@ void DriverUnitreeZ1::set_target_raw_joint_commands(const VectorXd &target_joint
     target_joint_raw_velocities_ = target_joint_velocities_rad_s;
     set_gripper_position(gripper_position);
 }
+*/
 
 
 /**
@@ -676,6 +697,16 @@ void DriverUnitreeZ1::set_target_joint_positions_with_gripper(const VectorXd &ta
     set_gripper_position(target_joint_positions_with_gripper_rad(6));
 }
 
+
+/**
+ * @brief DriverUnitreeZ1::set_target_joint_velocities_with_gripper sets the target joint velocities and the target gripper velocity
+ * @param target_joint_velocities_with_gripper_rad  A vector of 7x1 containing the desired joint velocities including the gripper.
+ */
+void DriverUnitreeZ1::set_target_joint_velocities_with_gripper(const VectorXd &target_joint_velocities_with_gripper_rad)
+{
+    set_target_joint_velocities(target_joint_velocities_with_gripper_rad.head(6));
+}
+
 /**
  * @brief DriverUnitreeZ1::get_joint_positions_with_gripper returns the measured joint positions including the gripper.
  * @return A vector 7x1 containing the joint positions and the gripper position.
@@ -683,7 +714,8 @@ void DriverUnitreeZ1::set_target_joint_positions_with_gripper(const VectorXd &ta
 VectorXd DriverUnitreeZ1::get_joint_positions_with_gripper()
 {
     VectorXd joint_positions_with_gripper = VectorXd::Zero(7);
-    joint_positions_with_gripper << q_measured_(0), q_measured_(1), q_measured_(2), q_measured_(3), q_measured_(4), q_measured_(5), gripper_position_measured_;
+    joint_positions_with_gripper << q_measured_(0), q_measured_(1), q_measured_(2),
+                                    q_measured_(3), q_measured_(4), q_measured_(5), gripper_position_measured_;
     return joint_positions_with_gripper;
 }
 

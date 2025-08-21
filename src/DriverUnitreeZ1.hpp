@@ -94,8 +94,8 @@ private:
 
     VectorXd target_joint_positions_;
 
-    VectorXd target_joint_raw_positions_;
-    VectorXd target_joint_raw_velocities_;
+    //VectorXd target_joint_raw_positions_;
+    VectorXd target_joint_velocities_;
 
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
@@ -105,6 +105,7 @@ private:
     double q_gripper_ni_{0}; // For numerical integration;
     double gripper_position_measured_;
     double gripper_velocity_measured_;
+    double gripper_torque_measured_;
     double target_gripper_position_{0};
     bool gripper_attached_;
     double gain_gripper_{1.0};
@@ -158,9 +159,13 @@ public:
 
     VectorXd get_joint_positions();
     VectorXd get_joint_velocities();
-    VectorXd get_joint_velocities_with_gripper();
     VectorXd get_joint_forces();
-    double get_gripper_position();
+
+    VectorXd get_joint_positions_with_gripper();
+    VectorXd get_joint_velocities_with_gripper();
+    VectorXd get_joint_torques_with_gripper();
+
+
 
 
     void move_to_initial_configuration_when_initialized(const bool& flag);
@@ -170,14 +175,22 @@ public:
     void move_to_target_joint_positions(const VectorXd& q_target);
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
+
+    void set_target_joint_velocities(const VectorXd& target_joint_velocities_rad_s);
+
+    /*
     void set_target_raw_joint_commands(const VectorXd& target_joint_positions_rad,
                                        const VectorXd& target_joint_velocities_rad_s,
                                        const double& gripper_position);
+    */
 
 
     void set_gripper_position(const double& gripper_position);
+    double get_gripper_position();
+
     void set_target_joint_positions_with_gripper(const VectorXd& target_joint_positions_with_gripper_rad);
-    VectorXd get_joint_positions_with_gripper();
+    void set_target_joint_velocities_with_gripper(const VectorXd& target_joint_velocities_with_gripper_rad);
+
 
 };
 
