@@ -43,7 +43,11 @@ int main(int argc, char** argv)
         sas::get_ros_parameter(node,"gripper_attached",configuration.gripper_attached);
         sas::get_ros_parameter(node,"mode",configuration.mode);
         sas::get_ros_parameter(node,"verbosity",configuration.verbosity);
+        sas::get_ros_parameter(node,"move_robot_to_initial_configuration",configuration.move_to_initial_configuration);
 
+        std::vector<double> initial_configuration;
+        sas::get_ros_parameter(node,"initial_configuration",initial_configuration);
+        configuration.initial_configuration = sas::std_vector_double_to_vectorxd(initial_configuration);
 
         std::vector<double> joint_limits_min;
         std::vector<double> joint_limits_max;
