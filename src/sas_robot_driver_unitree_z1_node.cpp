@@ -24,9 +24,10 @@ void sig_int_handler(int)
 int main(int argc, char** argv)
 {
 
-    if(signal(SIGINT, sig_int_handler) == SIG_ERR) 
+    if(signal(SIGINT, sig_int_handler) == SIG_ERR)
+    {
         throw std::runtime_error("::Error setting the signal int handler.");
-
+    }
 
     rclcpp::init(argc,argv,rclcpp::InitOptions(),rclcpp::SignalHandlerOptions::None);
 
@@ -51,8 +52,6 @@ int main(int argc, char** argv)
         configuration.joint_limits = {deg2rad(sas::std_vector_double_to_vectorxd(joint_limits_min)),
                                       deg2rad(sas::std_vector_double_to_vectorxd(joint_limits_max))};
 
-        sas::get_ros_parameter(node,"robot_name", configuration.robot_name);
-
 
         sas::RobotDriverROSConfiguration robot_driver_ros_configuration;
         sas::get_ros_parameter(node,"thread_sampling_time_sec",robot_driver_ros_configuration.thread_sampling_time_sec);
@@ -60,8 +59,7 @@ int main(int argc, char** argv)
 
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Parameters OK.");
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverUnitreeZ1.");
-        auto robot_driver_unitree_z1 = std::make_shared<sas::RobotDriverUnitreeZ1>(node,
-                                                                                   configuration,
+        auto robot_driver_unitree_z1 = std::make_shared<sas::RobotDriverUnitreeZ1>(configuration,
                                                                                    &kill_this_process);
 
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverROS.");
@@ -81,7 +79,3 @@ int main(int argc, char** argv)
 
 
 }
-
-
-// ros2 run demo_nodes_cpp parameter_blackboard --ros-args -p some_int:=42 -p "a_string:=Hello world" -p "some_lists.some_integers:=[1, 2, 3, 4]" -p "some_lists.some_doubles:=[3.14, 2.718]"
-// ros2 run sas_robot_driver_unitree_z1 sas_robot_driver_unitree_z1_node --ros-args -p "thread_sampling_time_sec:=0.002" -p "gripper_attached:=true_" -p "mode:=PositionControl" -p "verbosity:=true_" -p "joint_limits_min:=[-150.0, 0.0, -160.0, -80.0, -80.0, -160.0]" -p "joint_limits_max:=[150.0, 180.0, 0.0, 80.0, 80.0, 160.0]"

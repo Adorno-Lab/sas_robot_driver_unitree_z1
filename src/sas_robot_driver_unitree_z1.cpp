@@ -23,13 +23,9 @@ public:
 
 };
 
-RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(std::shared_ptr<Node> &node,
-                                           const RobotDriverUnitreeZ1Configuration &configuration,
-                                           std::atomic_bool *break_loops):
+RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration, std::atomic_bool *break_loops):
     RobotDriver(break_loops),
-    configuration_(configuration),
-    node_{node},
-    topic_prefix_{configuration.robot_name}
+    configuration_(configuration)
 {
     impl_ = std::make_unique<RobotDriverUnitreeZ1::Impl>();
 
@@ -46,12 +42,6 @@ RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(std::shared_ptr<Node> &node,
                                                                   configuration.gripper_attached,
                                                                   configuration.verbosity);
     joint_limits_ = configuration.joint_limits;
-
-    subscriber_target_joint_raw_commands_ = node_->create_subscription<std_msgs::msg::Float64MultiArray>(
-        topic_prefix_ + "/set/target_joint_raw_commands",
-        1,
-        std::bind(&RobotDriverUnitreeZ1::_callback_target_joint_raw_commands, this, std::placeholders::_1)
-        );
 }
 
 VectorXd RobotDriverUnitreeZ1::get_joint_positions()
@@ -90,12 +80,6 @@ void RobotDriverUnitreeZ1::deinitialize()
     impl_->unitree_z1_driver_->deinitialize();
 }
 
-
-void RobotDriverUnitreeZ1::_callback_target_joint_raw_commands(const std_msgs::msg::Float64MultiArray &msg)
-{
-    target_raw_commands_  = std_vector_double_to_vectorxd(msg.data);
-    new_target_velocities_available_ = true;
-}
 
 RobotDriverUnitreeZ1::~RobotDriverUnitreeZ1()
 {
