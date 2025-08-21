@@ -60,13 +60,13 @@ public:
     RobotDriverUnitreeZ1()=delete;
     ~RobotDriverUnitreeZ1();
 
-    RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration, std::atomic_bool* break_loops);
+    RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
+                         std::atomic_bool* break_loops);
 
     VectorXd get_joint_positions() override;
     void set_target_joint_positions(const VectorXd& desired_joint_positions_rad) override;
 
     VectorXd get_joint_velocities() override;
-    //void set_target_joint_velocities(const VectorXd& desired_joint_velocities_rads) override; //Not possible (yet?)
 
     void connect() override;
     void disconnect() override;

@@ -83,7 +83,7 @@ private:
     VectorXi motor_temperatures_;
     std::vector<uint8_t>  errorstate_;
 
-    const VectorXd Forward_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
+    const VectorXd FORWARD_CONFIGURATION_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
     VectorXd initial_configuration_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
     bool move_robot_to_initial_custom_configuration_when_initialized_{false};
 
@@ -129,7 +129,10 @@ private:
     std::thread joint_raw_position_control_mode_thread_;
     void _joint_raw_position_control_mode();
 
-    void _move_robot_to_target_joint_positions(const VectorXd& q_target, const double& gain, std::atomic_bool* break_loop);
+    void _move_robot_to_target_joint_positions(const VectorXd& q_target,
+                                               const double& gain,
+                                               const double& error_norm,
+                                               std::atomic_bool* break_loop);
 
 
 public:
@@ -159,10 +162,12 @@ public:
     VectorXd get_joint_forces();
     double get_gripper_position();
 
-    void move_to_initial_configuration_when_initialized(const bool& flag = true,
-                                                        const VectorXd& initial_configuration=(VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished());
 
-    void move_robot_to_target_joint_positions(const VectorXd& q_target);
+    void move_to_initial_configuration_when_initialized(const bool& flag);
+    void move_to_initial_configuration_when_initialized(const bool& flag,
+                                                        const VectorXd& initial_configuration);
+
+    void move_to_target_joint_positions(const VectorXd& q_target);
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
     void set_target_raw_joint_commands(const VectorXd& target_joint_positions_rad,

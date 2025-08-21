@@ -389,7 +389,7 @@ void DriverUnitreeZ1::initialize()
         if (move_robot_to_initial_custom_configuration_when_initialized_)
         {
             std::cout<<"Setting initial custom configuration..."<<std::endl;
-            _move_robot_to_target_joint_positions(initial_configuration_, 0.3, st_break_loops_);
+            _move_robot_to_target_joint_positions(initial_configuration_, 0.3, 0.01, st_break_loops_);
         }
 
         _finish_echo_robot_state();
@@ -433,7 +433,7 @@ void DriverUnitreeZ1::deinitialize()
     // Force this loop to keep enabled to move the robot to its initial configuration
     std::atomic_bool flag{false};
     std::cout<<"Setting home robot configuration..."<<std::endl;
-    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.4, &flag);
+    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.4, 0.015, &flag);
 
     impl_->arm_->backToStart();
     impl_->arm_->setFsm(UNITREE_ARM::ArmFSMState::PASSIVE);
@@ -502,15 +502,17 @@ void DriverUnitreeZ1::_finish_motion()
  *
  * @param q_target   The desired robot configuration.
  * @param gain       Convergence factor
+ * @param error_norm The error norm used to break the control loop.
  * @param break_loop Flag to break the loop.
  */
 void DriverUnitreeZ1::_move_robot_to_target_joint_positions(const VectorXd &q_target,
                                                             const double &gain,
+                                                            const double &error_norm,
                                                             std::atomic_bool *break_loop)
 {
     _update_q_for_numerical_integration();
     VectorXd q_dot;
-    while ( ((q_ni_-q_target).norm() > 0.015) and !(*break_loop))
+    while ( ((q_ni_-q_target).norm() > error_norm) and !(*break_loop))
     {
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, q_target, gain);
@@ -576,34 +578,49 @@ double DriverUnitreeZ1::get_gripper_position()
 
 
 /**
- * @brief DriverUnitreeZ1::move_to_initial_configuration_when_initialized moves the robot a custom configuration.
+ * @brief DriverUnitreeZ1::move_to_initial_configuration_when_initialized set a flag used to move the robot a custom configuration,
+ *                      before starting the control loop.
+ * @param flag Use true if you want to move the robot to a custom configuration before initializing the driver.
+ */
+void DriverUnitreeZ1::move_to_initial_configuration_when_initialized(const bool &flag)
+{
+    move_to_initial_configuration_when_initialized(flag,
+                                                   FORWARD_CONFIGURATION_);
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::move_to_initial_configuration_when_initialized set a flag used to move the robot a custom configuration,
+ *                      before starting the control loop.
  *                      This method must be called after connect() and before initialize().
- * @param flag Use true if you want to move the robot a custom configuration before initializing the driver.
+ * @param flag Use true if you want to move the robot to a custom configuration before initializing the driver.
  * @param initial_configuration The custom initial configuration.
  */
 void DriverUnitreeZ1::move_to_initial_configuration_when_initialized(const bool &flag,
                                                                      const VectorXd& initial_configuration)
 {
     move_robot_to_initial_custom_configuration_when_initialized_ = flag;
+    if (initial_configuration.size() != FORWARD_CONFIGURATION_ .size())
+        throw std::runtime_error(std::string(__func__)+ ": Wrong initial configuration size!");
     initial_configuration_ = initial_configuration;
 }
 
 
 /**
- * @brief DriverUnitreeZ1::move_robot_to_target_joint_positions moves the robot to a desired robot configuration.
+ * @brief DriverUnitreeZ1::move_to_target_joint_positions moves the robot to a desired robot configuration.
  *                      This method is designed to set a start robot configuration before to start a control loop.
  *                      If the operation mode is None, the method works, but this feature is going to be removed.
  *                      If the operation mode is PositionControl, the driver must be connected but not initialized.
  * @param q_target The desired robot configuration.
  */
-void DriverUnitreeZ1::move_robot_to_target_joint_positions(const VectorXd &q_target)
+void DriverUnitreeZ1::move_to_target_joint_positions(const VectorXd &q_target)
 {
     if (current_status_ == STATUS::INITIALIZED && mode_ == MODE::None)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.1, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, st_break_loops_);
     }else if( mode_ == MODE::PositionControl && current_status_ == STATUS::CONNECTED)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.1, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, st_break_loops_);
     }
     else
     {
