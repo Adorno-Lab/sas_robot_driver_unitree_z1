@@ -40,6 +40,8 @@ struct RobotDriverUnitreeZ1Configuration
     std::string mode;       //const std::string mode= "PositionControl";
     bool verbosity;         //const bool verbosity = true;
     std::tuple<VectorXd,VectorXd> joint_limits;
+    bool move_robot_to_initial_configuration;
+    VectorXd initial_configuration;
 };
 
 

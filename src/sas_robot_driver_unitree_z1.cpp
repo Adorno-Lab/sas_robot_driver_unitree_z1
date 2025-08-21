@@ -71,7 +71,7 @@ void RobotDriverUnitreeZ1::disconnect()
 
 void RobotDriverUnitreeZ1::initialize()
 {
-    impl_->unitree_z1_driver_->move_robot_to_forward_position_when_initialized();
+    impl_->unitree_z1_driver_->move_to_initial_configuration_when_initialized(configuration_.move_robot_to_initial_configuration);
     impl_->unitree_z1_driver_->initialize();
 }
 

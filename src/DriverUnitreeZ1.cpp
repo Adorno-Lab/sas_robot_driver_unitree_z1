@@ -123,7 +123,7 @@ void DriverUnitreeZ1::_show_status()
  */
 void DriverUnitreeZ1::_update_q_for_numerical_integration()
 {
-    for (int i=0;i<100;i++) // Updated the robot configuration
+    for (int i=0;i<50;i++) // Updated the robot configuration
     {
         _update_robot_state();
         q_ni_ = q_measured_;
@@ -247,7 +247,7 @@ void DriverUnitreeZ1::_joint_position_control_mode()
     target_gripper_position_ = q_gripper_ni_;
     VectorXd q_dot;
     double q_gripper_position_dot;
-    while(!finish_motion_ or !st_break_loops_)
+    while(!finish_motion_ && !st_break_loops_)
     {
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, target_joint_positions_, 5.0);
@@ -287,7 +287,7 @@ void DriverUnitreeZ1::_joint_raw_position_control_mode()
     target_joint_raw_positions_ = q_ni_;
     target_joint_raw_velocities_ = VectorXd::Zero(target_joint_raw_positions_.size());
     target_gripper_position_ = q_gripper_ni_;
-    while(!finish_motion_ or !st_break_loops_)
+    while(!finish_motion_ && !st_break_loops_)
     {
         _update_robot_state();
         impl_->arm_->q = target_joint_raw_positions_;
@@ -386,10 +386,10 @@ void DriverUnitreeZ1::initialize()
 
         initial_robot_configuration_ = q_ni_;
 
-        if (move_robot_to_forward_position_when_initialized_)
+        if (move_robot_to_initial_custom_configuration_when_initialized_)
         {
-            std::cout<<"Setting forward robot configuration..."<<std::endl;
-            _move_robot_to_target_joint_positions(Forward_, 0.3, st_break_loops_);
+            std::cout<<"Setting initial custom configuration..."<<std::endl;
+            _move_robot_to_target_joint_positions(initial_configuration_, 0.3, st_break_loops_);
         }
 
         _finish_echo_robot_state();
@@ -510,11 +510,11 @@ void DriverUnitreeZ1::_move_robot_to_target_joint_positions(const VectorXd &q_ta
 {
     _update_q_for_numerical_integration();
     VectorXd q_dot;
-    while ( ((q_ni_-q_target).norm() > 0.01) and !(*break_loop))
+    while ( ((q_ni_-q_target).norm() > 0.015) and !(*break_loop))
     {
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, q_target, gain);
-        q_ni_     = std::get<0>(results);
+        q_ni_ = std::get<0>(results);
         q_dot = std::get<1>(results);
 
         // To move the robot in joint position commands, we need to define both a target robot configuration and a target
@@ -576,13 +576,16 @@ double DriverUnitreeZ1::get_gripper_position()
 
 
 /**
- * @brief DriverUnitreeZ1::move_robot_to_forward_position_when_initialized moves the robot to the forward configuration.
+ * @brief DriverUnitreeZ1::move_to_initial_configuration_when_initialized moves the robot a custom configuration.
  *                      This method must be called after connect() and before initialize().
- * @param flag Use true if you want to move the robot to the forward configuration before initializing the driver.
+ * @param flag Use true if you want to move the robot a custom configuration before initializing the driver.
+ * @param initial_configuration The custom initial configuration.
  */
-void DriverUnitreeZ1::move_robot_to_forward_position_when_initialized(const bool &flag)
+void DriverUnitreeZ1::move_to_initial_configuration_when_initialized(const bool &flag,
+                                                                     const VectorXd& initial_configuration)
 {
-    move_robot_to_forward_position_when_initialized_ = flag;
+    move_robot_to_initial_custom_configuration_when_initialized_ = flag;
+    initial_configuration_ = initial_configuration;
 }
 
 

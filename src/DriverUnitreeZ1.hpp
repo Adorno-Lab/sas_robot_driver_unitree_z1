@@ -83,8 +83,9 @@ private:
     VectorXi motor_temperatures_;
     std::vector<uint8_t>  errorstate_;
 
-    VectorXd Forward_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
-    bool move_robot_to_forward_position_when_initialized_{false};
+    const VectorXd Forward_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
+    VectorXd initial_configuration_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
+    bool move_robot_to_initial_custom_configuration_when_initialized_{false};
 
     void _show_status();
     bool verbosity_;
@@ -158,7 +159,8 @@ public:
     VectorXd get_joint_forces();
     double get_gripper_position();
 
-    void move_robot_to_forward_position_when_initialized(const bool& flag = true);
+    void move_to_initial_configuration_when_initialized(const bool& flag = true,
+                                                        const VectorXd& initial_configuration=(VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished());
 
     void move_robot_to_target_joint_positions(const VectorXd& q_target);
 
