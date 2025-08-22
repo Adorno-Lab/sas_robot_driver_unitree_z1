@@ -25,7 +25,7 @@ def generate_launch_description():
             parameters=[{
                 "robot_name": "z1_1",
                 "thread_sampling_time_sec": 0.002,
-                "mode": "PositionControl",       
+                "mode": "RawPositionControl",   # e.g. "PositionControl" , "RawPositionControl"   
                 "gripper_attached": True,
                 "verbosity": True,        
                 "move_robot_to_initial_configuration": True,
