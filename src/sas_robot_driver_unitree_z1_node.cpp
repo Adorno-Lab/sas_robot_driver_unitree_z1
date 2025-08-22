@@ -43,7 +43,12 @@ int main(int argc, char** argv)
         sas::get_ros_parameter(node,"gripper_attached",configuration.gripper_attached);
         sas::get_ros_parameter(node,"mode",configuration.mode);
         sas::get_ros_parameter(node,"verbosity",configuration.verbosity);
+        sas::get_ros_parameter(node,"move_robot_to_initial_configuration",configuration.move_to_initial_configuration);
+        sas::get_ros_parameter(node, "open_loop_joint_control_gain", configuration.open_loop_joint_control_gain);
 
+        std::vector<double> initial_configuration;
+        sas::get_ros_parameter(node,"initial_configuration",initial_configuration);
+        configuration.initial_configuration = deg2rad(sas::std_vector_double_to_vectorxd(initial_configuration));
 
         std::vector<double> joint_limits_min;
         std::vector<double> joint_limits_max;
@@ -74,12 +79,5 @@ int main(int argc, char** argv)
         RCLCPP_ERROR_STREAM_ONCE(node->get_logger(), std::string("::Exception::") + e.what());
     }
 
-    // sas::display_signal_handler_none_bug_info(node); Not working anymore with the latest version of SAS
     return 0;
-
-
 }
-
-
-// ros2 run demo_nodes_cpp parameter_blackboard --ros-args -p some_int:=42 -p "a_string:=Hello world" -p "some_lists.some_integers:=[1, 2, 3, 4]" -p "some_lists.some_doubles:=[3.14, 2.718]"
-// ros2 run sas_robot_driver_unitree_z1 sas_robot_driver_unitree_z1_node --ros-args -p "thread_sampling_time_sec:=0.002" -p "gripper_attached:=true_" -p "mode:=PositionControl" -p "verbosity:=true_" -p "joint_limits_min:=[-150.0, 0.0, -160.0, -80.0, -80.0, -160.0]" -p "joint_limits_max:=[150.0, 180.0, 0.0, 80.0, 80.0, 160.0]"

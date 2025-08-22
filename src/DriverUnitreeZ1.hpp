@@ -27,6 +27,7 @@ Contributors:
 #include <dqrobotics/DQ.h>
 #include <dqrobotics/solvers/DQ_QPOASESSolver.h>
 #include <memory>
+#include <mutex>
 
 using namespace DQ_robotics;
 using namespace Eigen;
@@ -46,7 +47,8 @@ public:
 
     enum class MODE{
         None,
-        PositionControl,
+        PositionControl,    // To command the robot using ros2 topic commands on the terminal
+        RawPositionControl, // To command the robot using a kinematic control Strategy
         VelocityControl,
         ForceControl,
     };
@@ -65,6 +67,8 @@ private:
     MatrixXd H_;
     MatrixXd I_;
 
+    double open_loop_joint_control_gain_{0.3};
+
     std::tuple<VectorXd, VectorXd> _compute_control_inputs(VectorXd& q,
                                                            const VectorXd& qtarget,
                                                            const double& gain);
@@ -82,15 +86,26 @@ private:
     VectorXi motor_temperatures_;
     std::vector<uint8_t>  errorstate_;
 
-    VectorXd Forward_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
-    bool move_robot_to_forward_position_when_initialized_{false};
+    const VectorXd FORWARD_CONFIGURATION_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
+    VectorXd initial_configuration_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
+    bool move_robot_to_initial_custom_configuration_when_initialized_{false};
 
     void _show_status();
     bool verbosity_;
 
     void _update_q_for_numerical_integration();
 
+    //--------------Mutex for target_joint positions--------------------
+    // Based on https://github.com/MarinhoLab/sas_robot_driver_ur/blob/main/src/driver_ur_joint_positions_manager.hpp
+
+    std::mutex mutex_target_joint_positions_;
+    std::mutex mutex_target_joint_velocities_;
+    std::mutex mutex_target_gripper_position_;
+    //-------------------------------------------------------------------
     VectorXd target_joint_positions_;
+    VectorXd target_joint_velocities_;
+
+
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
 
@@ -99,8 +114,12 @@ private:
     double q_gripper_ni_{0}; // For numerical integration;
     double gripper_position_measured_;
     double gripper_velocity_measured_;
+    double gripper_torque_measured_;
     double target_gripper_position_{0};
     bool gripper_attached_;
+    double gain_gripper_{1.0};
+
+
 
     //-------To handle the threads-----------------
     void _echo_robot_state_mode();
@@ -116,7 +135,14 @@ private:
     std::atomic<bool> finish_motion_;
     void _finish_motion();
 
-    void _move_robot_to_target_joint_positions(const VectorXd& q_target, const double& gain, std::atomic_bool* break_loop);
+    void _start_raw_joint_position_control_thread();
+    std::thread joint_raw_position_control_mode_thread_;
+    void _joint_raw_position_control_mode();
+
+    void _move_robot_to_target_joint_positions(const VectorXd& q_target,
+                                               const double& gain,
+                                               const double& error_norm,
+                                               std::atomic_bool* break_loop);
 
 
 public:
@@ -124,12 +150,12 @@ public:
     DriverUnitreeZ1(const DriverUnitreeZ1&) = delete;
     DriverUnitreeZ1& operator= (const DriverUnitreeZ1&) = delete;
     DriverUnitreeZ1(std::atomic_bool* st_break_loops,
-                         const MODE& mode = MODE::None,
-                         const bool& gripper_attached = true,
-                         const bool& verbosity = true);
+                    const MODE& mode = MODE::None,
+                    const bool& gripper_attached = true,
+                    const bool& verbosity = true,
+                    const double&  open_loop_joint_control_gain = 0.3);
 
-   // DriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration& configuration, std::atomic_bool* break_loops);
-
+    ~DriverUnitreeZ1() = default;
 
     void connect();
     void initialize();
@@ -137,24 +163,39 @@ public:
     void disconnect();
 
 
-    void set_target_gripper_position(const double& target_gripper_position);
 
 
     VectorXd get_joint_positions();
     VectorXd get_joint_velocities();
-    VectorXd get_joint_velocities_with_gripper();
     VectorXd get_joint_forces();
-    double get_gripper_position();
 
-    void move_robot_to_forward_position_when_initialized(const bool& flag = true);
+    VectorXd get_joint_positions_with_gripper();
+    VectorXd get_joint_velocities_with_gripper();
+    VectorXd get_joint_torques_with_gripper();
 
-    void move_robot_to_target_joint_positions(const VectorXd& q_target);
+
+
+
+    void move_to_initial_configuration_when_initialized(const bool& flag);
+    void move_to_initial_configuration_when_initialized(const bool& flag,
+                                                        const VectorXd& initial_configuration);
+
+    void move_to_target_joint_positions(const VectorXd& q_target);
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
+    VectorXd get_target_joint_positions();
 
-    void set_gripper_position(const double& gripper_position);
+    void set_target_joint_velocities(const VectorXd& target_joint_velocities_rad_s);
+    VectorXd get_target_joint_velocities();
+
+    void set_target_gripper_position(const double& target_gripper_position);
+    double get_target_gripper_position();
+
+    double get_gripper_position();
+
     void set_target_joint_positions_with_gripper(const VectorXd& target_joint_positions_with_gripper_rad);
-    VectorXd get_joint_positions_with_gripper();
+    void set_target_joint_velocities_with_gripper(const VectorXd& target_joint_velocities_with_gripper_rad);
+
 
 };
 
