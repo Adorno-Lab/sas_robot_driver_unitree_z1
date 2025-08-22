@@ -27,6 +27,7 @@ Contributors:
 #include <dqrobotics/DQ.h>
 #include <dqrobotics/solvers/DQ_QPOASESSolver.h>
 #include <memory>
+#include <mutex>
 
 using namespace DQ_robotics;
 using namespace Eigen;
@@ -94,10 +95,16 @@ private:
 
     void _update_q_for_numerical_integration();
 
-    VectorXd target_joint_positions_;
+    //--------------Mutex for target_joint positions--------------------
+    // Based on https://github.com/MarinhoLab/sas_robot_driver_ur/blob/main/src/driver_ur_joint_positions_manager.hpp
 
-    //VectorXd target_joint_raw_positions_;
+    std::mutex mutex_target_joint_positions_;
+    std::mutex mutex_target_joint_velocities_;
+    std::mutex mutex_target_gripper_position_;
+    //-------------------------------------------------------------------
+    VectorXd target_joint_positions_;
     VectorXd target_joint_velocities_;
+
 
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
@@ -156,7 +163,6 @@ public:
     void disconnect();
 
 
-    void set_target_gripper_position(const double& target_gripper_position);
 
 
     VectorXd get_joint_positions();
@@ -177,10 +183,14 @@ public:
     void move_to_target_joint_positions(const VectorXd& q_target);
 
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
+    VectorXd get_target_joint_positions();
 
     void set_target_joint_velocities(const VectorXd& target_joint_velocities_rad_s);
+    VectorXd get_target_joint_velocities();
 
-    void set_gripper_position(const double& gripper_position);
+    void set_target_gripper_position(const double& target_gripper_position);
+    double get_target_gripper_position();
+
     double get_gripper_position();
 
     void set_target_joint_positions_with_gripper(const VectorXd& target_joint_positions_with_gripper_rad);

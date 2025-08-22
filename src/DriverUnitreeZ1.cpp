@@ -50,7 +50,7 @@ DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops,
 {
 
     impl_       = std::make_shared<DriverUnitreeZ1::Impl>();
-
+    target_joint_velocities_ = VectorXd::Zero(FORWARD_CONFIGURATION_.size());
     // This constructor offers more customized options.
     /*
     impl_->ctrlComp_    = std::make_shared<UNITREE_ARM::CtrlComponents>(0.004, gripper_attached);
@@ -246,14 +246,16 @@ void DriverUnitreeZ1::_finish_echo_robot_state()
 void DriverUnitreeZ1::_joint_position_control_mode()
 {
     _update_q_for_numerical_integration();
-    target_joint_positions_ = q_ni_;
-    target_gripper_position_ = q_gripper_ni_;
+    //target_joint_positions_ = q_ni_;
+    set_target_joint_positions(q_ni_);
+    //target_gripper_position_ = q_gripper_ni_;
+    set_target_gripper_position(q_gripper_ni_);
     VectorXd q_dot;
     double q_gripper_position_dot;
     while(!finish_motion_ && !(*st_break_loops_))
     {
         _update_robot_state();
-        auto results = _compute_control_inputs(q_ni_, target_joint_positions_, 5.0);
+        auto results = _compute_control_inputs(q_ni_, get_target_joint_positions(), 5.0);
         q_ni_ = std::get<0>(results);
         q_dot = std::get<1>(results);
 
@@ -264,7 +266,7 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 
         if (gripper_attached_)
         {
-            q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-target_gripper_position_);
+            q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-get_target_gripper_position());
             q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
             impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
         }
@@ -287,19 +289,21 @@ void DriverUnitreeZ1::_joint_position_control_mode()
 void DriverUnitreeZ1::_joint_raw_position_control_mode()
 {
     _update_q_for_numerical_integration();
-    target_joint_positions_ = q_ni_;
-    target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
+    //target_joint_positions_ = q_ni_;
+    set_target_joint_positions(q_ni_);
+    //target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
+    set_target_joint_velocities(VectorXd::Zero(target_joint_positions_.size()));
     target_gripper_position_ = q_gripper_ni_;
     while(!finish_motion_ && !(*st_break_loops_))
     {
         _update_robot_state();
-        impl_->arm_->q = target_joint_positions_;
-        impl_->arm_->qd = target_joint_velocities_;
+        impl_->arm_->q = get_target_joint_positions();
+        impl_->arm_->qd = get_target_joint_velocities();
         impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
 
         if (gripper_attached_)
         {
-            double q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-target_gripper_position_);
+            double q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-get_target_gripper_position());
             q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
             impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
         }
@@ -390,7 +394,7 @@ void DriverUnitreeZ1::initialize()
 
         if (move_robot_to_initial_custom_configuration_when_initialized_)
         {
-            std::cout<<"Setting initial custom configuration..."<<std::endl;
+            std::cerr<<"Setting initial custom configuration..."<<std::endl;
             _move_robot_to_target_joint_positions(initial_configuration_, open_loop_joint_control_gain_, 0.01, st_break_loops_);
         }
 
@@ -471,15 +475,6 @@ void DriverUnitreeZ1::disconnect()
 }
 
 
-/**
- * @brief DriverUnitreeZ1::set_target_gripper_position sets the target gripper position. This method works when the
- *              driver is in PositionControl or RawPositionControl.
- * @param target_gripper_position The target gripper position.
- */
-void DriverUnitreeZ1::set_target_gripper_position(const double &target_gripper_position)
-{
-    target_gripper_position_ = target_gripper_position;
-}
 
 /**
  * @brief DriverUnitreeZ1::_finish_motion sets the finish_motion_ flag to true using a for loop.
@@ -651,7 +646,19 @@ void DriverUnitreeZ1::move_to_target_joint_positions(const VectorXd &q_target)
  */
 void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_positions_rad)
 {
+    std::scoped_lock lock(mutex_target_joint_positions_); // Locks acquired
     target_joint_positions_ = target_joint_positions_rad;
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::get_target_joint_positions gets the target joint positions.
+ * @return The target joint positions
+ */
+VectorXd DriverUnitreeZ1::get_target_joint_positions()
+{
+    std::scoped_lock lock(mutex_target_joint_positions_); // Locks acquired
+    return target_joint_positions_;
 }
 
 /**
@@ -660,20 +667,42 @@ void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_po
  */
 void DriverUnitreeZ1::set_target_joint_velocities(const VectorXd &target_joint_velocities_rad_s)
 {
+    std::scoped_lock lock(mutex_target_joint_velocities_);
     target_joint_velocities_ = target_joint_velocities_rad_s;
+}
+
+/**
+ * @brief DriverUnitreeZ1::get_target_joint_velocities gets the target joint  velocities
+ * @return The target joint velocities
+ */
+VectorXd DriverUnitreeZ1::get_target_joint_velocities()
+{
+    std::scoped_lock lock(mutex_target_joint_velocities_);
+    return target_joint_velocities_;
 }
 
 
 
 /**
- * @brief DriverUnitreeZ1::set_gripper_position sets the gripper position when the operation mode is PositionControl.
- * @param gripper_position The target gripper position in radians. If the robot is correctly started following the official instructions,
+ * @brief DriverUnitreeZ1::set_target_gripper_position sets the gripper position when the operation mode is PositionControl.
+ * @param target_gripper_position The target gripper position in radians. If the robot is correctly started following the official instructions,
  *                      a value of zero represents a closed gripper. A value lower than zero is to open the gripper.
  *                      Positive values are ignored.
  */
-void DriverUnitreeZ1::set_gripper_position(const double &gripper_position)
+void DriverUnitreeZ1::set_target_gripper_position(const double &target_gripper_position)
 {
-    target_gripper_position_ = gripper_position;
+    std::scoped_lock lock(mutex_target_gripper_position_);
+    target_gripper_position_ = target_gripper_position;
+}
+
+/**
+ * @brief DriverUnitreeZ1::get_target_gripper_position gets the target gripper position
+ * @return The target gripper position.
+ */
+double DriverUnitreeZ1::get_target_gripper_position()
+{
+    std::scoped_lock lock(mutex_target_gripper_position_);
+    return target_gripper_position_;
 }
 
 /**
@@ -684,7 +713,7 @@ void DriverUnitreeZ1::set_gripper_position(const double &gripper_position)
 void DriverUnitreeZ1::set_target_joint_positions_with_gripper(const VectorXd &target_joint_positions_with_gripper_rad)
 {
     set_target_joint_positions(target_joint_positions_with_gripper_rad.head(6));
-    set_gripper_position(target_joint_positions_with_gripper_rad(6));
+    set_target_gripper_position(target_joint_positions_with_gripper_rad(6));
 }
 
 

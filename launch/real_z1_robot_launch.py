@@ -22,6 +22,7 @@ def generate_launch_description():
             executable='sas_robot_driver_unitree_z1_node',
             name='z1_1',
             namespace="sas_z1",
+            output="screen",
             parameters=[{
                 "robot_name": "z1_1",
                 "thread_sampling_time_sec": 0.002,
