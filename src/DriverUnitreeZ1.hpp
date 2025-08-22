@@ -66,6 +66,8 @@ private:
     MatrixXd H_;
     MatrixXd I_;
 
+    double open_loop_joint_control_gain_{0.3};
+
     std::tuple<VectorXd, VectorXd> _compute_control_inputs(VectorXd& q,
                                                            const VectorXd& qtarget,
                                                            const double& gain);
@@ -141,9 +143,10 @@ public:
     DriverUnitreeZ1(const DriverUnitreeZ1&) = delete;
     DriverUnitreeZ1& operator= (const DriverUnitreeZ1&) = delete;
     DriverUnitreeZ1(std::atomic_bool* st_break_loops,
-                         const MODE& mode = MODE::None,
-                         const bool& gripper_attached = true,
-                         const bool& verbosity = true);
+                    const MODE& mode = MODE::None,
+                    const bool& gripper_attached = true,
+                    const bool& verbosity = true,
+                    const double&  open_loop_joint_control_gain = 0.3);
 
     ~DriverUnitreeZ1() = default;
 

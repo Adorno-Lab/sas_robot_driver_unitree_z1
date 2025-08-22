@@ -44,6 +44,7 @@ int main(int argc, char** argv)
         sas::get_ros_parameter(node,"mode",configuration.mode);
         sas::get_ros_parameter(node,"verbosity",configuration.verbosity);
         sas::get_ros_parameter(node,"move_robot_to_initial_configuration",configuration.move_to_initial_configuration);
+        sas::get_ros_parameter(node, "open_loop_joint_control_gain", configuration.open_loop_joint_control_gain);
 
         std::vector<double> initial_configuration;
         sas::get_ros_parameter(node,"initial_configuration",initial_configuration);

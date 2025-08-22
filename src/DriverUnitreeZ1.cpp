@@ -23,7 +23,7 @@ public:
  * @param mode The operation mode. Select the control strategy to command the robot.
  * @param gripper_attached Use true (default) if the robot is equipped with the Unitree Gripper. Use false otherwise.
  * @param verbosity. Use true (default) to display more information in the terminal.
- *
+ * @param open_loop_joint_control_gain The gain used to move the robot towards the initial and home configuration.
  *
  * Example:
  *          // This class follows the SmartArmStack driver principles, in which four methods are required to
@@ -40,11 +40,13 @@ public:
  *          Z1.disconnect();     // Fourth method to be called. It is required to deinitialize before to disconnect.
  *
  */
-DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops, const MODE &mode,
-                                           const bool &gripper_attached,
-                                           const bool& verbosity)
-    :st_break_loops_{st_break_loops}, mode_{mode}, verbosity_{verbosity},
-    gripper_attached_{gripper_attached}, finish_echo_robot_state_{false}
+DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops,
+                                 const MODE &mode,
+                                 const bool &gripper_attached,
+                                 const bool& verbosity,
+                                 const double&  open_loop_joint_control_gain)
+    :st_break_loops_{st_break_loops}, mode_{mode}, open_loop_joint_control_gain_{open_loop_joint_control_gain},
+    verbosity_{verbosity}, gripper_attached_{gripper_attached}, finish_echo_robot_state_{false}
 {
 
     impl_       = std::make_shared<DriverUnitreeZ1::Impl>();
@@ -389,7 +391,7 @@ void DriverUnitreeZ1::initialize()
         if (move_robot_to_initial_custom_configuration_when_initialized_)
         {
             std::cout<<"Setting initial custom configuration..."<<std::endl;
-            _move_robot_to_target_joint_positions(initial_configuration_, 0.3, 0.01, st_break_loops_);
+            _move_robot_to_target_joint_positions(initial_configuration_, open_loop_joint_control_gain_, 0.01, st_break_loops_);
         }
 
         _finish_echo_robot_state();
@@ -433,7 +435,7 @@ void DriverUnitreeZ1::deinitialize()
     // Force this loop to keep enabled to move the robot to its initial configuration
     std::atomic_bool flag{false};
     std::cout<<"Setting home robot configuration..."<<std::endl;
-    _move_robot_to_target_joint_positions(initial_robot_configuration_, 0.4, 0.015, &flag);
+    _move_robot_to_target_joint_positions(initial_robot_configuration_, open_loop_joint_control_gain_, 0.015, &flag);
 
     impl_->arm_->backToStart();
     impl_->arm_->setFsm(UNITREE_ARM::ArmFSMState::PASSIVE);
@@ -661,18 +663,6 @@ void DriverUnitreeZ1::set_target_joint_velocities(const VectorXd &target_joint_v
     target_joint_velocities_ = target_joint_velocities_rad_s;
 }
 
-
-
-/*
-void DriverUnitreeZ1::set_target_raw_joint_commands(const VectorXd &target_joint_positions_rad,
-                                                    const VectorXd &target_joint_velocities_rad_s,
-                                                    const double &gripper_position)
-{
-    target_joint_raw_positions_  = target_joint_positions_rad;
-    target_joint_raw_velocities_ = target_joint_velocities_rad_s;
-    set_gripper_position(gripper_position);
-}
-*/
 
 
 /**

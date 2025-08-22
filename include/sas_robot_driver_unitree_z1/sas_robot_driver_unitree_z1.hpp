@@ -42,6 +42,7 @@ struct RobotDriverUnitreeZ1Configuration
     std::tuple<VectorXd,VectorXd> joint_limits;
     bool move_to_initial_configuration;
     VectorXd initial_configuration;
+    double open_loop_joint_control_gain;
 };
 
 

@@ -46,7 +46,8 @@ RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configurati
     impl_->unitree_z1_driver_ = std::make_shared<DriverUnitreeZ1>(break_loops,
                                                                   mode,
                                                                   configuration.gripper_attached,
-                                                                  configuration.verbosity);
+                                                                  configuration.verbosity,
+                                                                  configuration.open_loop_joint_control_gain);
     joint_limits_ = configuration.joint_limits;
 }
 
