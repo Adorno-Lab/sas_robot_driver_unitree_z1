@@ -47,7 +47,7 @@ int main(int argc, char** argv)
 
         std::vector<double> initial_configuration;
         sas::get_ros_parameter(node,"initial_configuration",initial_configuration);
-        configuration.initial_configuration = sas::std_vector_double_to_vectorxd(initial_configuration);
+        configuration.initial_configuration = deg2rad(sas::std_vector_double_to_vectorxd(initial_configuration));
 
         std::vector<double> joint_limits_min;
         std::vector<double> joint_limits_max;
@@ -78,8 +78,5 @@ int main(int argc, char** argv)
         RCLCPP_ERROR_STREAM_ONCE(node->get_logger(), std::string("::Exception::") + e.what());
     }
 
-    // sas::display_signal_handler_none_bug_info(node); Not working anymore with the latest version of SAS
     return 0;
-
-
 }

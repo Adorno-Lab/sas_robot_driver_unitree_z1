@@ -145,9 +145,6 @@ public:
                          const bool& gripper_attached = true,
                          const bool& verbosity = true);
 
-   // DriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration& configuration, std::atomic_bool* break_loops);
-
-
     void connect();
     void initialize();
     void deinitialize();
@@ -177,13 +174,6 @@ public:
     void set_target_joint_positions(const VectorXd& target_joint_positions_rad);
 
     void set_target_joint_velocities(const VectorXd& target_joint_velocities_rad_s);
-
-    /*
-    void set_target_raw_joint_commands(const VectorXd& target_joint_positions_rad,
-                                       const VectorXd& target_joint_velocities_rad_s,
-                                       const double& gripper_position);
-    */
-
 
     void set_gripper_position(const double& gripper_position);
     double get_gripper_position();

@@ -50,7 +50,6 @@ class RobotDriverUnitreeZ1: public RobotDriver
 private:
     RobotDriverUnitreeZ1Configuration configuration_;
 
-    //Implementation details that depend on FRI source files.
     class Impl;
     std::unique_ptr<Impl> impl_;
 
@@ -58,7 +57,7 @@ public:
 
     RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1&)=delete;
     RobotDriverUnitreeZ1()=delete;
-    ~RobotDriverUnitreeZ1();
+    ~RobotDriverUnitreeZ1() = default;
 
     RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
                          std::atomic_bool* break_loops);

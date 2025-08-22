@@ -1,7 +1,6 @@
 #include "sas_robot_driver_unitree_z1/sas_robot_driver_unitree_z1.hpp"
 
 #include "DriverUnitreeZ1.hpp"
-#include <iostream>
 #include <memory>
 #include <sas_core/eigen3_std_conversions.hpp>
 
@@ -93,16 +92,28 @@ VectorXd RobotDriverUnitreeZ1::get_joint_torques()
     return impl_->unitree_z1_driver_->get_joint_torques_with_gripper();
 }
 
+
+/**
+ * @brief RobotDriverUnitreeZ1::connect
+ */
 void RobotDriverUnitreeZ1::connect()
 {
     impl_->unitree_z1_driver_->connect();
 }
 
+
+/**
+ * @brief RobotDriverUnitreeZ1::disconnect
+ */
 void RobotDriverUnitreeZ1::disconnect()
 {
     impl_->unitree_z1_driver_->disconnect();
 }
 
+
+/**
+ * @brief RobotDriverUnitreeZ1::initialize
+ */
 void RobotDriverUnitreeZ1::initialize()
 {
     impl_->unitree_z1_driver_->move_to_initial_configuration_when_initialized(configuration_.move_to_initial_configuration,
@@ -110,16 +121,15 @@ void RobotDriverUnitreeZ1::initialize()
     impl_->unitree_z1_driver_->initialize();
 }
 
+/**
+ * @brief RobotDriverUnitreeZ1::deinitialize
+ */
 void RobotDriverUnitreeZ1::deinitialize()
 {
     impl_->unitree_z1_driver_->deinitialize();
 }
 
 
-RobotDriverUnitreeZ1::~RobotDriverUnitreeZ1()
-{
-
-}
 
 
 }
