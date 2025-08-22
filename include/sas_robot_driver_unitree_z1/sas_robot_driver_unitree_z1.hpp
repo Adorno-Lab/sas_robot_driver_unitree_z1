@@ -37,13 +37,38 @@ namespace sas
 struct RobotDriverUnitreeZ1Configuration
 {
     bool gripper_attached;  //const bool gripper_attached = = true;
-    std::string mode;       //const std::string mode= "PositionControl";
+    std::string mode;       //const std::string mode= "RawPositionControl";
     bool verbosity;         //const bool verbosity = true;
     std::tuple<VectorXd,VectorXd> joint_limits;
-    bool move_to_initial_configuration;
-    VectorXd initial_configuration;
-    double open_loop_joint_control_gain;
+    bool move_to_initial_configuration;  // Use true if you want to move the robot to the initial configuration
+    VectorXd initial_configuration;  // Custom initial configuration before starting the control loop
+    double open_loop_joint_control_gain; //Convergence rate when moving the robot to the initial and home configuration
 };
+
+/*
+Operation modes:
+    RawPositionControl: ----> Use this mode when you command the robot using both joint position commands
+                    and joint velocity commands.
+                    You must take into account the configuration and configuration velocity limits.
+        Example:
+
+        // Initialize the RobotDriverClient
+        sas::RobotDriverClient rdi(node, "/sas_z1/z1_1");
+
+        clock.update_and_sleep();
+
+        rdi.send_target_joint_positions(target_joint_positions);
+        rdi.send_target_joint_velocities(gain*(target_joint_positions-rdi.get_joint_positions()));
+
+        rclcpp::spin_some(node);
+
+
+
+    PositionControl: ---> Use this mode when you command the robot using ROS 2 commands on the terminal.
+                    In this mode, you need to set the target position only. An internal QP computes the velocity commands,
+                    taking into account the configuration and configuration velocity limits
+
+*/
 
 
 class RobotDriverUnitreeZ1: public RobotDriver
