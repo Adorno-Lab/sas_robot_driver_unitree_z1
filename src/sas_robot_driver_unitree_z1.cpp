@@ -22,6 +22,11 @@ public:
 
 };
 
+RobotDriverUnitreeZ1::~RobotDriverUnitreeZ1()
+{
+
+}
+
 RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration, std::atomic_bool *break_loops):
     RobotDriver(break_loops),
     configuration_(configuration)

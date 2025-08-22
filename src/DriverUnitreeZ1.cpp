@@ -201,7 +201,7 @@ void DriverUnitreeZ1::_update_robot_state()
  */
 void DriverUnitreeZ1::_echo_robot_state_mode()
 {
-    while(!finish_echo_robot_state_ or !st_break_loops_)
+    while(!finish_echo_robot_state_ or !(*st_break_loops_))
     {
         _update_robot_state();
         impl_->unitree_timer_->sleep();
@@ -248,7 +248,7 @@ void DriverUnitreeZ1::_joint_position_control_mode()
     target_gripper_position_ = q_gripper_ni_;
     VectorXd q_dot;
     double q_gripper_position_dot;
-    while(!finish_motion_ && !st_break_loops_)
+    while(!finish_motion_ && !(*st_break_loops_))
     {
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, target_joint_positions_, 5.0);
@@ -288,7 +288,7 @@ void DriverUnitreeZ1::_joint_raw_position_control_mode()
     target_joint_positions_ = q_ni_;
     target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
     target_gripper_position_ = q_gripper_ni_;
-    while(!finish_motion_ && !st_break_loops_)
+    while(!finish_motion_ && !(*st_break_loops_))
     {
         _update_robot_state();
         impl_->arm_->q = target_joint_positions_;

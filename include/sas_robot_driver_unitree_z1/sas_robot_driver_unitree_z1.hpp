@@ -57,7 +57,7 @@ public:
 
     RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1&)=delete;
     RobotDriverUnitreeZ1()=delete;
-    ~RobotDriverUnitreeZ1() = default;
+    ~RobotDriverUnitreeZ1();
 
     RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
                          std::atomic_bool* break_loops);

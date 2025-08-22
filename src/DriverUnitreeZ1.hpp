@@ -145,6 +145,8 @@ public:
                          const bool& gripper_attached = true,
                          const bool& verbosity = true);
 
+    ~DriverUnitreeZ1() = default;
+
     void connect();
     void initialize();
     void deinitialize();

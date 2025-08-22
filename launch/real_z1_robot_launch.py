@@ -27,10 +27,11 @@ def generate_launch_description():
                 "thread_sampling_time_sec": 0.002,
                 "mode": "PositionControl",       
                 "gripper_attached": True,
-                "verbosity": True,         
+                "verbosity": True,        
+                "move_robot_to_initial_configuration": True,
+                "initial_configuration": [0.0, 90.0,-60.0,-30.0, 0.0, -90.0], # [0.0, 1.57, -1.0, -0.54, 0.0, -1.57]  
                 "joint_limits_min": [-150.0, 0.0, -160.0, -80.0, -80.0, -160.0, 0.0],
-                "joint_limits_max": [150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0],
-                "initial_configuration": [0, 90,-60,-30, 0, -90] # [0.0, 1.57, -1.0, -0.54, 0.0, -1.57] 
+                "joint_limits_max": [150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0]
             }]
         ),
 
