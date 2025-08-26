@@ -4,7 +4,7 @@ ENV BASH_ENV="/etc/bash_env"
 
 # Clone this rep
 RUN mkdir -p ~/git/
-RUN cd ~/git/ && git clone https://github.com/Adorno-Lab/sas_robot_driver_unitree_z1 --recursive -b docker
+RUN cd ~/git/ && git clone https://github.com/Adorno-Lab/sas_robot_driver_unitree_z1 --recursive 
 
 
 # Install the Z1 driver
