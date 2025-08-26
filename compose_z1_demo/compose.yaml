@@ -4,8 +4,7 @@ services:
     privileged: true
     network_mode: "host" 
     ipc: "host"
-    stop_signal: SIGINT
-    stop_grace_period: 1m
+    stop_grace_period: 40s
     environment:
       DISPLAY: $DISPLAY
     volumes:
@@ -15,13 +14,11 @@ services:
 
   sas_robot_driver_unitree_z1:
     build: ../docker/sas_robot_driver_unitree_z1
-    stdin_open: true # docker run -i
-    tty: true        # docker run -t  
     privileged: true
     network_mode: "host" 
     ipc: "host"
     stop_signal: SIGINT
-    #stop_grace_period: 30s
+    stop_grace_period: 30s
     environment:
       DISPLAY: $DISPLAY
     volumes:
