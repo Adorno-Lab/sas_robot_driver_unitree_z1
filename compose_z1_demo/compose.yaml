@@ -3,18 +3,34 @@ services:
     build: ../docker/z1_controller/
     privileged: true
     network_mode: "host" 
+    ipc: "host"
+    stop_signal: SIGINT
+    stop_grace_period: 1m
     environment:
       DISPLAY: $DISPLAY
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix # x server related
+      - ~/.Xauthority:/root/.Xauthority # x server related   
     command: /bin/bash  
 
   sas_robot_driver_unitree_z1:
     build: ../docker/sas_robot_driver_unitree_z1
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t  
     privileged: true
     network_mode: "host" 
+    ipc: "host"
     stop_signal: SIGINT
+    #stop_grace_period: 30s
     environment:
       DISPLAY: $DISPLAY
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix # x server related
+      - ~/.Xauthority:/root/.Xauthority # x server related  
     command: /bin/bash -c "
+      source /opt/ros/jazzy/setup.bash;
       export ROS_DOMAIN_ID=1;
+      cd ~/ros2_ws/ && colcon build;
+      source ~/ros2_ws/install/setup.bash;
       sleep 4;
-      launch_ROS2_Z1_drivers"
+      ros2 launch sas_robot_driver_unitree_z1 real_z1_robot_launch.py "
