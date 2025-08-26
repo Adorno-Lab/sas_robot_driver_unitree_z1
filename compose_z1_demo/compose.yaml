@@ -1,0 +1,20 @@
+services:
+  z1_controller:
+    build: ../docker/z1_controller/
+    privileged: true
+    network_mode: "host" 
+    environment:
+      DISPLAY: $DISPLAY
+    command: /bin/bash  
+
+  sas_robot_driver_unitree_z1:
+    build: ../docker/sas_robot_driver_unitree_z1
+    privileged: true
+    network_mode: "host" 
+    stop_signal: SIGINT
+    environment:
+      DISPLAY: $DISPLAY
+    command: /bin/bash -c "
+      export ROS_DOMAIN_ID=1;
+      sleep 4;
+      launch_ROS2_Z1_drivers"
