@@ -25,9 +25,20 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix # x server related
       - ~/.Xauthority:/root/.Xauthority # x server related  
     command: /bin/bash -c "
-      source /opt/ros/jazzy/setup.bash;
       export ROS_DOMAIN_ID=1;
-      cd ~/ros2_ws/ && colcon build;
-      source ~/ros2_ws/install/setup.bash;
-      sleep 4;
-      ros2 launch sas_robot_driver_unitree_z1 real_z1_robot_launch.py "
+      cd /root/git/sas_robot_driver_unitree_z1/dependencies/
+      && chmod +x build_packages.sh && chmod +x countdown.sh
+      && . ./build_package.sh
+      && . ./countdown.sh 10 
+      && ros2 launch sas_robot_driver_unitree_z1 real_z1_robot_launch.py "
+
+
+
+
+    #command: /bin/bash -c "
+    #  source /opt/ros/jazzy/setup.bash;
+    #  export ROS_DOMAIN_ID=1;
+    #  cd ~/ros2_ws/ && colcon build;
+    #  source ~/ros2_ws/install/setup.bash;
+    #  sleep 4;
+    #  ros2 launch sas_robot_driver_unitree_z1 real_z1_robot_launch.py "
