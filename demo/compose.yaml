@@ -1,8 +1,0 @@
-services:
-  z1_controller:
-    build: ../docker/z1_controller/
-    privileged: true
-    network_mode: "host" 
-    environment:
-      DISPLAY: $DISPLAY
-    command: /bin/bash  
