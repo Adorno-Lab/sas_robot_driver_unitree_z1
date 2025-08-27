@@ -7,5 +7,5 @@
 > More information about the SmartArmStack is available at https://smartarmstack.github.io/.
 
 > [!IMPORTANT]
-> Do not clone this repository directly. See https://github.com/Adorno-Lab/sas_unitree_z1_control_template
+> Do not clone this repository directly. See [sas_unitree_z1_control_template](https://github.com/Adorno-Lab/sas_unitree_z1_control_template)
 
