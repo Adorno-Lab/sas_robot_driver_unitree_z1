@@ -3,38 +3,9 @@
 
 # sas_robot_driver_unitree_z1
 
-### Docker Instructions
+> [!TIP]
+> More information about the SmartArmStack is available at https://smartarmstack.github.io/.
 
-#### Prerequisites:
-- Docker with sudo permisions.
-- Prepare the Unitree Z1 arm.
-
-1. Clone this repository
-```shell
-cd ~/Downloads
-git clone https://github.com/Adorno-Lab/sas_robot_driver_unitree_z1 --recursive
-cd sas_robot_driver_unitree_z1
-```
-2. Build the docker image
-   
 > [!IMPORTANT]
-> The argument of the following command sets the ROS_DOMAIN_ID
+> Do not clone this repository directly. See https://github.com/Adorno-Lab/sas_unitree_z1_control_template
 
-```shell
-sh build_sas_rd_unitree_z1_docker.sh 1
-```
-3. Start the docker container
-```shell
-sh start_sas_rd_unitree_z1_docker.sh  
-```
-4. Build the ROS2 packages
-```shell
-buildros2
-```
-5. Start the driver
-> [!CAUTION]
-> The robot will move with the next command. Be ready to perform an emergency stop!
-
-```shell
-launch_ROS2_drivers
-```
