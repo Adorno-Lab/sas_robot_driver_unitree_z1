@@ -31,6 +31,8 @@ def generate_launch_description():
                 "verbosity": True,      
                 "open_loop_joint_control_gain": 0.4,  
                 "move_robot_to_initial_configuration": True,
+                "watchdog_period_in_seconds": 0.6,
+                "watchdog_maximum_acceptable_delay": 1e10,
                 "initial_configuration": [0.0, 90.0,-60.0,-30.0, 0.0, -90.0], # [0.0, 1.57, -1.0, -0.54, 0.0, -1.57]  
                 "joint_limits_min": [-150.0, 0.0, -160.0, -80.0, -80.0, -160.0, 0.0],
                 "joint_limits_max": [150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0]
