@@ -132,6 +132,8 @@ void RobotDriverUnitreeZ1::initialize()
  */
 void RobotDriverUnitreeZ1::deinitialize()
 {
+    //To force the thread to shutdown if it hasn't already done so
+    *break_loops_ = true;
     impl_->unitree_z1_driver_->deinitialize();
 }
 
