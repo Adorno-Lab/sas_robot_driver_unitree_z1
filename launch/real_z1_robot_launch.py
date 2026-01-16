@@ -36,7 +36,7 @@ def generate_launch_description():
                 "joint_limits_max": [150.0, 180.0, 0.0, 80.0, 80.0, 160.0, -40.0]
             }],
             remappings=[
-                ('set/shutdown', '/sas/set/shutdown')
+                 ('~/set/shutdown', '/sas/set/shutdown')
             ]
         ),
 
