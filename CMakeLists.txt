@@ -12,6 +12,8 @@ find_package(Eigen3 REQUIRED)
 find_package(sas_core REQUIRED)
 find_package(sas_common REQUIRED)
 find_package(sas_robot_driver REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
 
 ##########################################################
 ################## NOT ROS2 libraries  ###################
@@ -43,7 +45,9 @@ target_link_libraries(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
     sas_core
+    std_msgs
     Eigen3
+    rclcpp
 
 )
 
@@ -62,7 +66,9 @@ target_include_directories(${PROJECT_NAME}
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
     sas_core
+    std_msgs
     Eigen3
+    rclcpp
     )
 
 install(

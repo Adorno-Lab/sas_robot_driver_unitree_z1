@@ -3,7 +3,8 @@
 #include "DriverUnitreeZ1.hpp"
 #include <memory>
 #include <sas_core/eigen3_std_conversions.hpp>
-
+#include <std_msgs/msg/bool.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 namespace sas
 {
@@ -13,6 +14,8 @@ class RobotDriverUnitreeZ1::Impl
 
 public:
     std::shared_ptr<DriverUnitreeZ1> unitree_z1_driver_;
+
+    rclcpp:: Subscription<std_msgs::msg::Bool>::SharedPtr subscriber_stop_;
     Impl()
     {
 
@@ -27,7 +30,8 @@ RobotDriverUnitreeZ1::~RobotDriverUnitreeZ1()
 
 }
 
-RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration, std::atomic_bool *break_loops):
+RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
+                                           std::atomic_bool *break_loops):
     RobotDriver(break_loops),
     configuration_(configuration)
 {
