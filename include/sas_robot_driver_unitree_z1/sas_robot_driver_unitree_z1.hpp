@@ -29,6 +29,7 @@
 #include <thread>
 
 #include <sas_core/sas_robot_driver.hpp>
+#include <sas_core/sas_shutdown_signaler.hpp>
 
 using namespace Eigen;
 namespace sas
@@ -85,6 +86,10 @@ public:
     RobotDriverUnitreeZ1()=delete;
     ~RobotDriverUnitreeZ1();
 
+    RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
+                         const std::shared_ptr<ShutdownSignaler>& shutdown_signaler);
+
+    [[deprecated("Use RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration&, const std::shared_ptr<ShutdownSignaler>&) instead.")]]
     RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
                          std::atomic_bool* break_loops);
 

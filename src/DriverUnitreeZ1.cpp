@@ -1,12 +1,43 @@
 #include "DriverUnitreeZ1.hpp"
 #include "unitree_arm_sdk/control/unitreeArm.h"
 #include "constraints_manager.hpp"
+#include <marinholab/sas/core/sas_clock.hpp>
+#include <algorithm>
+#include <cstdio>
+#include <iostream>
+#include <stdexcept>
+
+namespace
+{
+// Upper bound for the blocking moves to the initial and home configurations. With the default gains
+// these moves take a few seconds; the bound only protects against a move that never converges.
+constexpr double kBlockingMoveTimeoutSec = 60.0;
+// Number of samples used to read the robot state before starting a numerical integration.
+constexpr int kStateSamplesBeforeIntegration = 50;
+// Convergence gain of the QP used in MODE::PositionControl.
+constexpr double kPositionControlGain = 5.0;
+constexpr Eigen::Index kNumArmJoints = 6;
+// Motor error flags (LowlevelState::errorstate) that stop the driver: phase current is too large (0x01),
+// phase leakage (0x02), and motor winding overheat (0x04).
+constexpr uint8_t kMotorFaultMask = 0x01 | 0x02 | 0x04;
+// Motor error flag that the SDK documents as "Ignore".
+constexpr uint8_t kMotorIgnoredErrorMask = 0x40;
+// Number of consecutive state updates with a motor communication error (LowlevelState::isMotorConnected)
+// before it is treated as a fault. The SDK reports each error once, so isolated errors are only logged.
+constexpr int kMaxConsecutiveMotorConnectionErrors = 50;
+
+std::string to_hex(const uint8_t& value)
+{
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "0x%02x", static_cast<unsigned int>(value));
+    return std::string(buffer);
+}
+}
 
 class DriverUnitreeZ1::Impl
 {
 public:
     std::shared_ptr<UNITREE_ARM::unitreeArm> arm_;
-    std::shared_ptr<UNITREE_ARM::Timer> unitree_timer_;
     std::shared_ptr<UNITREE_ARM::CtrlComponents> ctrlComp_;
     std::unique_ptr<Capybara::ConstraintsManager> cm_;
     Impl()
@@ -18,7 +49,7 @@ public:
 
 /**
  * @brief DriverUnitreeZ1::DriverUnitreeZ1 constructor of the class.
- * @param st_break_loops Use this flag to break internal loops. This is useful to stop the robot using a signal
+ * @param shutdown_signaler Use this signaler to break internal loops. This is useful to stop the robot using a signal
  *              interruption by the user.
  * @param mode The operation mode. Select the control strategy to command the robot.
  * @param gripper_attached Use true (default) if the robot is equipped with the Unitree Gripper. Use false otherwise.
@@ -29,7 +60,8 @@ public:
  *          // This class follows the SmartArmStack driver principles, in which four methods are required to
  *             start and finish the robot communication.
  *
- *          DriverUnitreeZ1 Z1(&kill_this_process, DriverUnitreeZ1::MODE::PositionControl);
+ *          auto shutdown_signaler = std::make_shared<marinholab::sas::core::ShutdownSignaler>(&kill_this_process);
+ *          DriverUnitreeZ1 Z1(shutdown_signaler, DriverUnitreeZ1::MODE::PositionControl);
  *          Z1.connect();    // First method to be called.
  *          Z1.initialize(); // Second method to be called. It is required to connect before to initialize.
  *
@@ -40,17 +72,19 @@ public:
  *          Z1.disconnect();     // Fourth method to be called. It is required to deinitialize before to disconnect.
  *
  */
-DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops,
+DriverUnitreeZ1::DriverUnitreeZ1(const std::shared_ptr<marinholab::sas::core::ShutdownSignaler>& shutdown_signaler,
                                  const MODE &mode,
                                  const bool &gripper_attached,
                                  const bool& verbosity,
                                  const double&  open_loop_joint_control_gain)
-    :st_break_loops_{st_break_loops}, mode_{mode}, open_loop_joint_control_gain_{open_loop_joint_control_gain},
-    verbosity_{verbosity}, gripper_attached_{gripper_attached}, finish_echo_robot_state_{false}
+    :shutdown_signaler_{shutdown_signaler}, mode_{mode}, open_loop_joint_control_gain_{open_loop_joint_control_gain},
+    verbosity_{verbosity}, gripper_attached_{gripper_attached}
 {
+    if (!shutdown_signaler_)
+        throw std::invalid_argument(std::string(__func__) + ": the shutdown signaler must not be null.");
 
     impl_       = std::make_shared<DriverUnitreeZ1::Impl>();
-    target_joint_velocities_ = VectorXd::Zero(FORWARD_CONFIGURATION_.size());
+    target_joint_velocities_ = VectorXd::Zero(kNumArmJoints);
     // This constructor offers more customized options.
     /*
     impl_->ctrlComp_    = std::make_shared<UNITREE_ARM::CtrlComponents>(0.004, gripper_attached);
@@ -68,12 +102,71 @@ DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops,
     current_status_ = STATUS::IDLE;
     status_msg_ = std::string("Idle.");
 
-    H_  = MatrixXd::Identity(6, 6);
-    I_  = MatrixXd::Identity(6, 6);
-    impl_->cm_ = std::make_unique<Capybara::ConstraintsManager>(6);
+    H_  = MatrixXd::Identity(kNumArmJoints, kNumArmJoints);
+    I_  = MatrixXd::Identity(kNumArmJoints, kNumArmJoints);
+    impl_->cm_ = std::make_unique<Capybara::ConstraintsManager>(kNumArmJoints);
     solver_ = std::make_unique<DQ_QPOASESSolver>();
 
     _set_driver_mode(mode);
+}
+
+/**
+ * @brief DriverUnitreeZ1::DriverUnitreeZ1 deprecated constructor that uses a raw pointer as the shutdown signal.
+ *          The pointer is wrapped in a ShutdownSignaler, so the external flag and the signaler stay in sync.
+ * @param st_break_loops The external flag used to break the internal loops.
+ * @param mode The operation mode. Select the control strategy to command the robot.
+ * @param gripper_attached Use true (default) if the robot is equipped with the Unitree Gripper. Use false otherwise.
+ * @param verbosity. Use true (default) to display more information in the terminal.
+ * @param open_loop_joint_control_gain The gain used to move the robot towards the initial and home configuration.
+ */
+DriverUnitreeZ1::DriverUnitreeZ1(std::atomic_bool *st_break_loops,
+                                 const MODE &mode,
+                                 const bool &gripper_attached,
+                                 const bool &verbosity,
+                                 const double &open_loop_joint_control_gain)
+    :DriverUnitreeZ1(std::make_shared<marinholab::sas::core::ShutdownSignaler>(st_break_loops),
+                     mode, gripper_attached, verbosity, open_loop_joint_control_gain)
+{
+
+}
+
+/**
+ * @brief DriverUnitreeZ1::~DriverUnitreeZ1 stops the driver threads before the members they use are destroyed.
+ *              It does not move the robot. Call deinitialize() and disconnect() for a proper shutdown.
+ */
+DriverUnitreeZ1::~DriverUnitreeZ1()
+{
+    _stop_control_thread();
+    _stop_state_thread();
+}
+
+/**
+ * @brief DriverUnitreeZ1::set_joint_limits_with_gripper sets the joint limits used to clamp every command sent to the
+ *              robot. The arm limits are also used by the QP in PositionControl and in the moves to the initial and
+ *              home configurations. This method must be called before initialize().
+ * @param q_min_with_gripper_rad A vector 7x1 containing the lower joint limits and the lower gripper limit, in radians.
+ * @param q_max_with_gripper_rad A vector 7x1 containing the upper joint limits and the upper gripper limit, in radians.
+ */
+void DriverUnitreeZ1::set_joint_limits_with_gripper(const VectorXd &q_min_with_gripper_rad,
+                                                    const VectorXd &q_max_with_gripper_rad)
+{
+    if (current_status_ == STATUS::INITIALIZED)
+        throw std::runtime_error(std::string(__func__) + ": the joint limits can not be changed while the driver is initialized.");
+    if (q_min_with_gripper_rad.size() != kNumArmJoints+1 || q_max_with_gripper_rad.size() != kNumArmJoints+1)
+        throw std::invalid_argument(std::string(__func__) + ": expected vectors of size 7, got sizes "
+                                    + std::to_string(q_min_with_gripper_rad.size()) + " and "
+                                    + std::to_string(q_max_with_gripper_rad.size()));
+    for (Eigen::Index i=0;i<kNumArmJoints+1;i++)
+    {
+        if (q_min_with_gripper_rad(i) > q_max_with_gripper_rad(i))
+            throw std::invalid_argument(std::string(__func__) + ": the lower limit of joint " + std::to_string(i)
+                                        + " (" + std::to_string(q_min_with_gripper_rad(i)) + ") is greater than its upper limit ("
+                                        + std::to_string(q_max_with_gripper_rad(i)) + ").");
+    }
+    q_min_ = q_min_with_gripper_rad.head(kNumArmJoints);
+    q_max_ = q_max_with_gripper_rad.head(kNumArmJoints);
+    gripper_min_ = q_min_with_gripper_rad(kNumArmJoints);
+    gripper_max_ = q_max_with_gripper_rad(kNumArmJoints);
 }
 
 /**
@@ -120,18 +213,39 @@ void DriverUnitreeZ1::_show_status()
 }
 
 /**
- * @brief DriverUnitreeZ1::_update_q_for_numerical_integration updates the robot state including the gripper position.
+ * @brief DriverUnitreeZ1::_should_shutdown checks whether a shutdown has been requested through the shutdown signaler.
+ * @return true if a shutdown has been requested.
+ */
+bool DriverUnitreeZ1::_should_shutdown() const
+{
+    return shutdown_signaler_->should_shutdown();
+}
+
+/**
+ * @brief DriverUnitreeZ1::_sample_robot_state updates the robot state during kStateSamplesBeforeIntegration samples,
+ *                          to make sure the measured state is recent.
+ */
+void DriverUnitreeZ1::_sample_robot_state()
+{
+    marinholab::sas::core::Clock clock{T_, false};
+    clock.init();
+    for (int i=0;i<kStateSamplesBeforeIntegration;i++) // Updated the robot configuration
+    {
+        _update_robot_state();
+        clock.update_and_sleep();
+    }
+}
+
+/**
+ * @brief DriverUnitreeZ1::_update_q_for_numerical_integration updates the robot state including the gripper position,
+ *                          and initializes the numerical integration with the measured configuration.
  *                          This method must be called before to start the joint position control loop.
  */
 void DriverUnitreeZ1::_update_q_for_numerical_integration()
 {
-    for (int i=0;i<50;i++) // Updated the robot configuration
-    {
-        _update_robot_state();
-        q_ni_ = q_measured_;
-        q_gripper_ni_ = gripper_position_measured_;
-        impl_->unitree_timer_->sleep();
-    }
+    _sample_robot_state();
+    q_ni_ = _get_measured_joint_positions();
+    q_gripper_ni_ = _get_measured_gripper_position();
 }
 
 
@@ -176,17 +290,18 @@ void DriverUnitreeZ1::_set_driver_mode(const MODE &mode)
  */
 void DriverUnitreeZ1::_update_robot_state()
 {
-    q_measured_     = impl_->arm_->lowstate->getQ();
-    q_dot_measured_ = impl_->arm_->lowstate->getQd();
-    q_dot_dot_measured_ = impl_->arm_->lowstate->getQdd();
-    tau_measured_  = impl_->arm_->lowstate->getTau();
+    const auto& lowstate = impl_->arm_->lowstate;
+    std::scoped_lock lock(state_mutex_);
+    q_measured_     = lowstate->getQ();
+    q_dot_measured_ = lowstate->getQd();
+    q_dot_dot_measured_ = lowstate->getQdd();
+    tau_measured_  = lowstate->getTau();
 
-    std::vector<int> temp = impl_->arm_->lowstate->temperature;
-    motor_temperatures_ = Eigen::Map<VectorXi>(temp.data(), temp.size());
+    motor_temperatures_ = lowstate->temperature;
 
-    gripper_position_measured_ = impl_->arm_->lowstate->getGripperQ();
-    gripper_velocity_measured_ = impl_->arm_->lowstate->getGripperQd();
-    gripper_torque_measured_   = impl_->arm_->lowstate->getGripperTau();
+    gripper_position_measured_ = lowstate->getGripperQ();
+    gripper_velocity_measured_ = lowstate->getGripperQd();
+    gripper_torque_measured_   = lowstate->getGripperTau();
     /*
      * 0x01 : phase current is too large
      * 0x02 : phase leakage
@@ -194,156 +309,311 @@ void DriverUnitreeZ1::_update_robot_state()
      * 0x20 : parameters jump
      * 0x40 : Ignore
      */
-    errorstate_ = impl_->arm_->lowstate->errorstate;
+    errorstate_ = lowstate->errorstate;
+    /*
+     * 0: OK
+     * 1: communication between lower computer and motor disconnect once
+     * 2: communication between lower computer and motor has CRC erro once
+     */
+    motor_connection_state_ = lowstate->isMotorConnected;
+
+    _check_motor_health();
 }
 
-
 /**
- * @brief DriverUnitreeZ1::_echo_robot_state_mode runs a loop to update the robot state. In this loop, the robot won't move at all.
+ * @brief DriverUnitreeZ1::_check_motor_health checks the motor error and communication states. Changes are logged
+ *                  when they happen. A fault requests a shutdown, and is latched in motor_fault_detected_:
+ *                  - The error flags 0x01 (phase current), 0x02 (phase leakage) and 0x04 (overheat) are faults.
+ *                  - The other error flags are warnings, except 0x40, which the SDK documents as "Ignore".
+ *                  - A communication error is a fault only if it lasts kMaxConsecutiveMotorConnectionErrors
+ *                    consecutive state updates.
+ *                  If the gripper is not attached, the gripper motor (last entry) is not checked.
+ *
+ * @pre The caller must hold state_mutex_.
  */
-void DriverUnitreeZ1::_echo_robot_state_mode()
+void DriverUnitreeZ1::_check_motor_health()
 {
-    while(!finish_echo_robot_state_ or !(*st_break_loops_))
+    if (last_reported_errorstate_.size() != errorstate_.size())
+        last_reported_errorstate_.assign(errorstate_.size(), 0);
+    if (last_reported_motor_connection_state_.size() != motor_connection_state_.size())
     {
-        _update_robot_state();
-        impl_->unitree_timer_->sleep();
+        last_reported_motor_connection_state_.assign(motor_connection_state_.size(), 0);
+        consecutive_motor_connection_faults_.assign(motor_connection_state_.size(), 0);
     }
-    status_msg_ = "Echo robot state finished.";
-    _show_status();
+
+    // Without the gripper, the last entry (the gripper motor) is not meaningful.
+    const size_t ignored_entries = gripper_attached_ ? 0 : 1;
+    const size_t number_of_error_entries = errorstate_.size() > ignored_entries ? errorstate_.size()-ignored_entries : 0;
+    const size_t number_of_connection_entries = motor_connection_state_.size() > ignored_entries ?
+                                                    motor_connection_state_.size()-ignored_entries : 0;
+    std::string fault_reason;
+
+    for (size_t i=0;i<number_of_error_entries;i++)
+    {
+        const uint8_t error = errorstate_.at(i) & static_cast<uint8_t>(~kMotorIgnoredErrorMask);
+        if (error != last_reported_errorstate_.at(i))
+        {
+            if (error != 0)
+                std::cerr<<"DriverUnitreeZ1: motor "<<i<<" reports the error state "<<to_hex(error)
+                         <<(((error & kMotorFaultMask) != 0) ? " (fault)." : " (warning).")<<std::endl;
+            else
+                std::cerr<<"DriverUnitreeZ1: the error state of motor "<<i<<" was cleared."<<std::endl;
+            last_reported_errorstate_.at(i) = error;
+        }
+        if ((error & kMotorFaultMask) != 0)
+            fault_reason = "motor " + std::to_string(i) + " reports the error state " + to_hex(error);
+    }
+
+    for (size_t i=0;i<number_of_connection_entries;i++)
+    {
+        const uint8_t connection_state = motor_connection_state_.at(i);
+        if (connection_state != last_reported_motor_connection_state_.at(i))
+        {
+            if (connection_state != 0)
+                std::cerr<<"DriverUnitreeZ1: motor "<<i<<" reports the communication error "
+                         <<static_cast<int>(connection_state)<<"."<<std::endl;
+            else
+                std::cerr<<"DriverUnitreeZ1: the communication with motor "<<i<<" is OK again."<<std::endl;
+            last_reported_motor_connection_state_.at(i) = connection_state;
+        }
+        consecutive_motor_connection_faults_.at(i) = (connection_state != 0) ?
+            std::min(consecutive_motor_connection_faults_.at(i)+1, kMaxConsecutiveMotorConnectionErrors) : 0;
+        if (consecutive_motor_connection_faults_.at(i) >= kMaxConsecutiveMotorConnectionErrors)
+            fault_reason = "motor " + std::to_string(i) + " reports communication errors in "
+                           + std::to_string(kMaxConsecutiveMotorConnectionErrors) + " consecutive state updates";
+    }
+
+    if (!fault_reason.empty() && !motor_fault_detected_.exchange(true))
+    {
+        std::cerr<<"DriverUnitreeZ1: "<<fault_reason<<". Requesting shutdown."<<std::endl;
+        shutdown_signaler_->shutdown();
+    }
+}
+
+/**
+ * @brief DriverUnitreeZ1::_get_measured_joint_positions returns the measured joint positions.
+ * @return a vector 6x1 containing the joint positions, without the gripper position.
+ */
+VectorXd DriverUnitreeZ1::_get_measured_joint_positions()
+{
+    std::scoped_lock lock(state_mutex_);
+    return q_measured_;
+}
+
+/**
+ * @brief DriverUnitreeZ1::_get_measured_gripper_position returns the measured gripper position.
+ * @return the gripper position in radians.
+ */
+double DriverUnitreeZ1::_get_measured_gripper_position()
+{
+    std::scoped_lock lock(state_mutex_);
+    return gripper_position_measured_;
 }
 
 
 /**
- * @brief DriverUnitreeZ1::_start_echo_robot_state_mode_thread This method starts the echo loop thread that updates
- *                      the robot state. This loop however, can not command the robot. It is only for receive information
+ * @brief DriverUnitreeZ1::_start_state_thread starts the thread that updates the robot state.
+ *                      This thread can not command the robot. It is only for receive information
  *                      from the robot.
  */
-void DriverUnitreeZ1::_start_echo_robot_state_mode_thread()
+void DriverUnitreeZ1::_start_state_thread()
 {
-    finish_echo_robot_state_ = false;
-    if (echo_robot_state_mode_thread_.joinable())
-        echo_robot_state_mode_thread_.join();
+    if (state_thread_ && state_thread_->is_running())
+        return;
 
-    echo_robot_state_mode_thread_ = std::thread(&DriverUnitreeZ1::_echo_robot_state_mode, this);
+    state_thread_ = std::make_unique<marinholab::sas::core::ThreadManager>(
+        "z1_state",
+        T_,
+        [this](){_update_robot_state();},
+        marinholab::sas::core::ThreadManager::PRIORITY::NORMAL,
+        -1);
+    state_thread_->start();
 }
 
 /**
- * @brief DriverUnitreeZ1::_finish_echo_robot_state this method finishes the echo loop thread.
+ * @brief DriverUnitreeZ1::_stop_state_thread stops and releases the state thread, if one is running.
  */
-void DriverUnitreeZ1::_finish_echo_robot_state()
+void DriverUnitreeZ1::_stop_state_thread()
 {
-    status_msg_ = "Finishing echo robot state.";
-    finish_echo_robot_state_ = true;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    _show_status();
-}
-
-
-/**
- * @brief DriverUnitreeZ1::_joint_position_control_mode runs a loop updating the robot state and commanding the robot.
- *                      This method is used in the PositionControl mode.
- */
-void DriverUnitreeZ1::_joint_position_control_mode()
-{
-    _update_q_for_numerical_integration();
-    //target_joint_positions_ = q_ni_;
-    set_target_joint_positions(q_ni_);
-    //target_gripper_position_ = q_gripper_ni_;
-    set_target_gripper_position(q_gripper_ni_);
-    VectorXd q_dot;
-    double q_gripper_position_dot;
-    while(!finish_motion_ && !(*st_break_loops_))
+    if (state_thread_)
     {
-        _update_robot_state();
-        auto results = _compute_control_inputs(q_ni_, get_target_joint_positions(), 5.0);
-        q_ni_ = std::get<0>(results);
-        q_dot = std::get<1>(results);
-
-        impl_->arm_->q = q_ni_;
-        impl_->arm_->qd = q_dot;
-
-        impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
-
-        if (gripper_attached_)
-        {
-            q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-get_target_gripper_position());
-            q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
-            impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
-        }
-
-        impl_->unitree_timer_->sleep();
+        state_thread_->stop();
+        state_thread_.reset();
     }
-    status_msg_ = "Joint position control finished.";
-    _show_status();
-
 }
 
 
 /**
- * @brief DriverUnitreeZ1::_joint_raw_position_control_mode runs a loop updating the robot state and commanding the robot.
- *                      This method is used in the RawPositionControl mode.
+ * @brief DriverUnitreeZ1::_send_arm_command sends a joint position and joint velocity command to the robot.
+ *                  Every arm command goes through this method. The joint positions are clamped to [q_min_, q_max_]
+ *                  and the joint velocities to [-q_dot_max_, q_dot_max_]. The velocity of a joint whose position
+ *                  was clamped is set to zero, so the robot does not push against the limit.
+ * @param q The target joint positions.
+ * @param q_dot The target joint velocities.
+ */
+void DriverUnitreeZ1::_send_arm_command(const VectorXd &q, const VectorXd &q_dot)
+{
+    VectorXd q_clamped = q.cwiseMax(q_min_).cwiseMin(q_max_);
+    VectorXd q_dot_clamped = q_dot.cwiseMax(-q_dot_max_).cwiseMin(q_dot_max_);
+    for (Eigen::Index i=0;i<kNumArmJoints;i++)
+    {
+        if (q_clamped(i) != q(i))
+            q_dot_clamped(i) = 0.0;
+    }
+    impl_->arm_->setArmCmd(q_clamped, q_dot_clamped);
+    last_commanded_joint_positions_ = q_clamped;
+}
+
+/**
+ * @brief DriverUnitreeZ1::_send_gripper_command sends a gripper position and gripper velocity command to the robot.
+ *                  The gripper position is clamped to [gripper_min_, gripper_max_]. If the position was clamped,
+ *                  the gripper velocity is set to zero.
+ * @param q_gripper The target gripper position.
+ * @param q_gripper_dot The target gripper velocity.
+ */
+void DriverUnitreeZ1::_send_gripper_command(const double &q_gripper, const double &q_gripper_dot)
+{
+    const double q_gripper_clamped = std::clamp(q_gripper, gripper_min_, gripper_max_);
+    const double q_gripper_dot_clamped = (q_gripper_clamped != q_gripper) ? 0.0 : q_gripper_dot;
+    impl_->arm_->setGripperCmd(q_gripper_clamped, q_gripper_dot_clamped);
+}
+
+/**
+ * @brief DriverUnitreeZ1::_gripper_control_step moves the gripper towards the target gripper position, which is
+ *                  clamped to [gripper_min_, gripper_max_].
+ */
+void DriverUnitreeZ1::_gripper_control_step()
+{
+    const double target_gripper_position = std::clamp(get_target_gripper_position(), gripper_min_, gripper_max_);
+    const double q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-target_gripper_position);
+    q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
+    _send_gripper_command(q_gripper_ni_, q_gripper_position_dot);
+}
+
+/**
+ * @brief DriverUnitreeZ1::_hold_last_command commands the robot to stay at the last commanded configuration,
+ *                      with zero velocity. Call it only after the control thread has commanded the robot,
+ *                      otherwise the last commanded configuration is not meaningful.
+ */
+void DriverUnitreeZ1::_hold_last_command()
+{
+    _send_arm_command(last_commanded_joint_positions_, VectorXd::Zero(kNumArmJoints));
+    if (gripper_attached_)
+        _send_gripper_command(q_gripper_ni_, 0.0);
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::_joint_position_control_step updates the robot command in the PositionControl mode.
+ */
+void DriverUnitreeZ1::_joint_position_control_step()
+{
+    auto results = _compute_control_inputs(q_ni_, get_target_joint_positions(), kPositionControlGain);
+    q_ni_ = std::get<0>(results);
+    _send_arm_command(q_ni_, std::get<1>(results));
+
+    if (gripper_attached_)
+        _gripper_control_step();
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::_joint_raw_position_control_step updates the robot command in the RawPositionControl mode.
  *
- *                      [WARNING]---->:Be careful, you must take into account the configuration
- *                                     and configuration velocity limits here.
+ *                      This mode is meant to be used with a kinematic control package that ensures smooth
+ *                      commands. The targets are sent as is, without a QP or rate limiting. Only the clamping
+ *                      to the configuration and configuration velocity limits is applied, as a safety net.
  */
-void DriverUnitreeZ1::_joint_raw_position_control_mode()
+void DriverUnitreeZ1::_joint_raw_position_control_step()
 {
-    _update_q_for_numerical_integration();
-    //target_joint_positions_ = q_ni_;
-    set_target_joint_positions(q_ni_);
-    //target_joint_velocities_ = VectorXd::Zero(target_joint_positions_.size());
-    set_target_joint_velocities(VectorXd::Zero(target_joint_positions_.size()));
-    target_gripper_position_ = q_gripper_ni_;
-    while(!finish_motion_ && !(*st_break_loops_))
+    _send_arm_command(get_target_joint_positions(), get_target_joint_velocities());
+
+    if (gripper_attached_)
+        _gripper_control_step();
+}
+
+
+/**
+ * @brief DriverUnitreeZ1::_control_loop_callback runs one tick of the control thread: updates the robot state and
+ *                      commands the robot according to the operation mode. Once a shutdown has been requested,
+ *                      every tick holds the last commanded configuration until deinitialize() stops the thread.
+ *                      The thread is not stopped from here, because stopping a ThreadManager from its own
+ *                      callback would deadlock.
+ */
+void DriverUnitreeZ1::_control_loop_callback()
+{
+    try
     {
         _update_robot_state();
-        impl_->arm_->q = get_target_joint_positions();
-        impl_->arm_->qd = get_target_joint_velocities();
-        impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
 
-        if (gripper_attached_)
+        if (_should_shutdown())
         {
-            double q_gripper_position_dot = -gain_gripper_*(q_gripper_ni_-get_target_gripper_position());
-            q_gripper_ni_ = q_gripper_ni_ + T_*q_gripper_position_dot;
-            impl_->arm_->setGripperCmd(q_gripper_ni_ , q_gripper_position_dot);
+            _hold_last_command();
+            return;
         }
-        impl_->unitree_timer_->sleep();
+
+        switch (mode_) {
+        case MODE::PositionControl:
+            _joint_position_control_step();
+            break;
+        case MODE::RawPositionControl:
+            _joint_raw_position_control_step();
+            break;
+        case MODE::None:
+        case MODE::VelocityControl:
+        case MODE::ForceControl:
+            break;
+        }
     }
-    status_msg_ = "Joint raw position control finished.";
-    _show_status();
-}
-
-
-
-/**
- * @brief DriverUnitreeZ1::_start_joint_position_control_thread This method starts the control loop thread that updates
- *                      the robot state and control the robot in PositionControl.
- */
-void DriverUnitreeZ1::_start_joint_position_control_thread()
-{
-    finish_motion_ = false;
-    if (joint_position_control_mode_thread_.joinable())
-        joint_position_control_mode_thread_.join();
-
-    joint_position_control_mode_thread_ = std::thread(&DriverUnitreeZ1::_joint_position_control_mode, this);
-    status_msg_ = "Starting joint position control.";
-    _show_status();
+    catch (const std::exception& e)
+    {
+        // Nothing can catch an exception thrown from this thread, so stop the robot driver instead.
+        std::cerr<<"DriverUnitreeZ1::_control_loop_callback: "<<e.what()<<". Requesting shutdown."<<std::endl;
+        shutdown_signaler_->shutdown();
+    }
 }
 
 
 /**
- * @brief DriverUnitreeZ1::_start_raw_joint_position_control_thread This method starts the control loop thread that updates
- *                      the robot state and control the robot in RawPositionControl.
+ * @brief DriverUnitreeZ1::_start_control_thread initializes the numerical integration and the targets with the
+ *                      measured robot configuration, and starts the control thread.
  */
-void DriverUnitreeZ1::_start_raw_joint_position_control_thread()
+void DriverUnitreeZ1::_start_control_thread()
 {
-    finish_motion_ = false;
-    if (joint_raw_position_control_mode_thread_.joinable())
-        joint_raw_position_control_mode_thread_.join();
+    if (control_thread_ && control_thread_->is_running())
+        return;
 
-    joint_raw_position_control_mode_thread_ = std::thread(&DriverUnitreeZ1::_joint_raw_position_control_mode, this);
-    status_msg_ = "Starting joint raw position control.";
+    _update_q_for_numerical_integration();
+    set_target_joint_positions(q_ni_);
+    set_target_joint_velocities(VectorXd::Zero(kNumArmJoints));
+    set_target_gripper_position(q_gripper_ni_);
+    last_commanded_joint_positions_ = q_ni_;
+
+    control_thread_ = std::make_unique<marinholab::sas::core::ThreadManager>(
+        "z1_control",
+        T_,
+        [this](){_control_loop_callback();},
+        marinholab::sas::core::ThreadManager::PRIORITY::NORMAL,
+        -1);
+    control_thread_->start();
+    status_msg_ = (mode_ == MODE::PositionControl) ? "Starting joint position control." :
+                                                      "Starting joint raw position control.";
     _show_status();
+}
+
+/**
+ * @brief DriverUnitreeZ1::_stop_control_thread stops and releases the control thread, if one is running.
+ *                      When this method returns, the control thread no longer commands the robot.
+ */
+void DriverUnitreeZ1::_stop_control_thread()
+{
+    if (control_thread_)
+    {
+        control_thread_->stop();
+        control_thread_.reset();
+        status_msg_ = "Control thread finished.";
+        _show_status();
+    }
 }
 
 
@@ -355,16 +625,10 @@ void DriverUnitreeZ1::connect()
 {
     if (current_status_ == STATUS::IDLE)
     {
-        //std::cout<<impl_->z1_controller_->_get_config_path()<<std::endl;
-        //std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
         impl_->arm_->sendRecvThread->start();
         T_ = impl_->arm_->_ctrlComp->dt;
 
-        if (!impl_->unitree_timer_)
-            impl_->unitree_timer_ = std::make_shared<UNITREE_ARM::Timer>(T_);
-
-        _start_echo_robot_state_mode_thread();
+        _start_state_thread();
         current_status_ = STATUS::CONNECTED;
         status_msg_ = "connected!";
         _show_status();
@@ -383,6 +647,11 @@ void DriverUnitreeZ1::initialize()
 {
     if (current_status_ == STATUS::CONNECTED)
     {
+        // Check the motors before moving the robot.
+        _sample_robot_state();
+        if (motor_fault_detected_)
+            throw std::runtime_error(std::string(__func__) + ": a motor fault was detected. The robot was not moved.");
+
         impl_->arm_->backToStart();
         impl_->arm_->startTrack(UNITREE_ARM::ArmFSMState::JOINTCTRL);
 
@@ -395,19 +664,19 @@ void DriverUnitreeZ1::initialize()
         if (move_robot_to_initial_custom_configuration_when_initialized_)
         {
             std::cerr<<"Setting initial custom configuration..."<<std::endl;
-            _move_robot_to_target_joint_positions(initial_configuration_, open_loop_joint_control_gain_, 0.01, st_break_loops_);
+            _move_robot_to_target_joint_positions(initial_configuration_, open_loop_joint_control_gain_, 0.01,
+                                                  true, kBlockingMoveTimeoutSec);
         }
-
-        _finish_echo_robot_state();
 
         switch (mode_) {
         case MODE::None:
+            // No control thread. The state thread keeps updating the robot state.
             break;
         case MODE::PositionControl:
-            _start_joint_position_control_thread();
-            break;
         case MODE::RawPositionControl:
-            _start_raw_joint_position_control_thread();
+            // The control thread updates the robot state from now on.
+            _stop_state_thread();
+            _start_control_thread();
             break;
         case MODE::VelocityControl:
             break;
@@ -423,27 +692,40 @@ void DriverUnitreeZ1::initialize()
 
 
 /**
- * @brief DriverUnitreeZ1::deinitialize This method stops all communication threads.
- *                  This method requires initialized communication with the robot, i.e. the user must call both connect(),
- *                  and initialize() before calling deinitialize().
+ * @brief DriverUnitreeZ1::deinitialize This method stops the control thread, moves the robot to the configuration it had
+ *                  when initialize() was called, and then to its home configuration. After a motor fault, the move to
+ *                  the configuration it had when initialize() was called is skipped.
+ *                  This method requires an initialized driver, i.e. the user must call both connect(),
+ *                  and initialize() before calling deinitialize(). Otherwise, this method does nothing.
  */
 void DriverUnitreeZ1::deinitialize()
 {
+    if (current_status_ != STATUS::INITIALIZED)
+        return;
 
-    _finish_motion();
+    if (control_thread_)
+    {
+        std::cout<<"Ending control loop..."<<std::endl;
+        _stop_control_thread();
+        // Remove any velocity command left by the control thread before homing the robot.
+        _hold_last_command();
+    }
 
-    while(!finish_motion_){
-        std::cout<<"Waiting..."<<std::endl;
-    }; //wait to break the joint control thread
-
-    // Force this loop to keep enabled to move the robot to its initial configuration
-    std::atomic_bool flag{false};
-    std::cout<<"Setting home robot configuration..."<<std::endl;
-    _move_robot_to_target_joint_positions(initial_robot_configuration_, open_loop_joint_control_gain_, 0.015, &flag);
+    if (motor_fault_detected_)
+    {
+        // Do not command the robot with the driver after a motor fault. backToStart() is still used.
+        std::cerr<<"A motor fault was detected. Skipping the move to the initial robot configuration."<<std::endl;
+    }
+    else
+    {
+        // This move ignores the shutdown signal on purpose, to move the robot to its initial configuration.
+        std::cout<<"Setting home robot configuration..."<<std::endl;
+        _move_robot_to_target_joint_positions(initial_robot_configuration_, open_loop_joint_control_gain_, 0.015,
+                                              false, kBlockingMoveTimeoutSec);
+    }
 
     impl_->arm_->backToStart();
     impl_->arm_->setFsm(UNITREE_ARM::ArmFSMState::PASSIVE);
-    impl_->arm_->sendRecvThread->shutdown();
     status_msg_ = "Deinitialized.";
     current_status_ = STATUS::DEINITIALIZED;
     _show_status();
@@ -451,78 +733,71 @@ void DriverUnitreeZ1::deinitialize()
 
 
 /**
- * @brief DriverUnitreeZ1::disconnect performs the last steps to disconnect the driver
+ * @brief DriverUnitreeZ1::disconnect performs the last steps to disconnect the driver. If the driver is still
+ *              initialized, this method calls deinitialize() first.
  */
 void DriverUnitreeZ1::disconnect()
 {
+    if (current_status_ == STATUS::INITIALIZED)
+        deinitialize();
+
+    if (current_status_ != STATUS::CONNECTED && current_status_ != STATUS::DEINITIALIZED)
+        return;
+
     status_msg_ = "Disconnecting...";
-    _finish_echo_robot_state();
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-    if (joint_position_control_mode_thread_.joinable())
-         joint_position_control_mode_thread_.join();
-
-    if (joint_raw_position_control_mode_thread_.joinable())
-        joint_raw_position_control_mode_thread_.join();
-
-    if (echo_robot_state_mode_thread_.joinable())
-        echo_robot_state_mode_thread_.join();
+    _show_status();
+    _stop_control_thread();
+    _stop_state_thread();
+    impl_->arm_->sendRecvThread->shutdown();
 
     status_msg_ = "Disconnected.";
     current_status_ = STATUS::DISCONNECTED;
     _show_status();
-    //impl_->z1_controller_->stop();
 }
 
 
 
 /**
- * @brief DriverUnitreeZ1::_finish_motion sets the finish_motion_ flag to true using a for loop.
- */
-void DriverUnitreeZ1::_finish_motion()
-{
-    std::cout<<"Ending control loop..."<<std::endl;
-    for (int i=0;i<10;i++)
-    {
-        set_target_joint_positions(q_ni_);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    finish_motion_ = true;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-}
-
-
-
-/**
- * @brief DriverUnitreeZ1::_move_robot_to_target_joint_positions commands the robot in joint position level.
- *                      This method is used in the joint position control thread.
+ * @brief DriverUnitreeZ1::_move_robot_to_target_joint_positions commands the robot in joint position level, in the
+ *                      caller thread. This method must not be called while the control thread is running.
  *
  * @param q_target   The desired robot configuration.
  * @param gain       Convergence factor
  * @param error_norm The error norm used to break the control loop.
- * @param break_loop Flag to break the loop.
+ * @param stop_on_shutdown Use true to break the control loop when a shutdown is requested.
+ * @param timeout_sec The maximum duration of the motion, in seconds.
+ * @return true if the robot reached the desired configuration. false if the motion was stopped by a shutdown
+ *         request or by the timeout.
  */
-void DriverUnitreeZ1::_move_robot_to_target_joint_positions(const VectorXd &q_target,
+bool DriverUnitreeZ1::_move_robot_to_target_joint_positions(const VectorXd &q_target,
                                                             const double &gain,
                                                             const double &error_norm,
-                                                            std::atomic_bool *break_loop)
+                                                            const bool &stop_on_shutdown,
+                                                            const double &timeout_sec)
 {
     _update_q_for_numerical_integration();
-    VectorXd q_dot;
-    while ( ((q_ni_-q_target).norm() > error_norm) and !(*break_loop))
+    marinholab::sas::core::Clock clock{T_, false};
+    clock.init();
+    while ((q_ni_-q_target).norm() > error_norm)
     {
+        if (stop_on_shutdown && _should_shutdown())
+            return false;
+        if (clock.get_elapsed_time_sec() > timeout_sec)
+        {
+            std::cerr<<std::string(__func__)<<": the target configuration was not reached within "
+                     <<timeout_sec<<" seconds. Remaining error norm: "<<(q_ni_-q_target).norm()<<std::endl;
+            return false;
+        }
         _update_robot_state();
         auto results = _compute_control_inputs(q_ni_, q_target, gain);
         q_ni_ = std::get<0>(results);
-        q_dot = std::get<1>(results);
 
         // To move the robot in joint position commands, we need to define both a target robot configuration and a target
         // robot configuration velocity.
-        impl_->arm_->q = q_ni_;
-        impl_->arm_->qd = q_dot;
-        impl_->arm_->setArmCmd(impl_->arm_->q, impl_->arm_->qd);
-        impl_->unitree_timer_->sleep();
+        _send_arm_command(q_ni_, std::get<1>(results));
+        clock.update_and_sleep();
     }
+    return true;
 }
 
 /**
@@ -531,7 +806,7 @@ void DriverUnitreeZ1::_move_robot_to_target_joint_positions(const VectorXd &q_ta
  */
 VectorXd DriverUnitreeZ1::get_joint_positions()
 {
-    return q_measured_;
+    return _get_measured_joint_positions();
 }
 
 /**
@@ -540,6 +815,7 @@ VectorXd DriverUnitreeZ1::get_joint_positions()
  */
 VectorXd DriverUnitreeZ1::get_joint_velocities()
 {
+    std::scoped_lock lock(state_mutex_);
     return q_dot_measured_;
 }
 
@@ -549,6 +825,7 @@ VectorXd DriverUnitreeZ1::get_joint_velocities()
  */
 VectorXd DriverUnitreeZ1::get_joint_velocities_with_gripper()
 {
+    std::scoped_lock lock(state_mutex_);
     VectorXd joint_velocities_with_gripper = VectorXd::Zero(7);
     joint_velocities_with_gripper << q_dot_measured_(0), q_dot_measured_(1), q_dot_measured_(2),
                                      q_dot_measured_(3), q_dot_measured_(4), q_dot_measured_(5), gripper_velocity_measured_;
@@ -562,6 +839,7 @@ VectorXd DriverUnitreeZ1::get_joint_velocities_with_gripper()
  */
 VectorXd DriverUnitreeZ1::get_joint_torques_with_gripper()
 {
+    std::scoped_lock lock(state_mutex_);
     VectorXd joint_torques_with_gripper = VectorXd::Zero(7);
     joint_torques_with_gripper << tau_measured_(0), tau_measured_(1), tau_measured_(2),
         tau_measured_(3), tau_measured_(4), tau_measured_(5), gripper_torque_measured_;
@@ -574,6 +852,7 @@ VectorXd DriverUnitreeZ1::get_joint_torques_with_gripper()
  */
 VectorXd DriverUnitreeZ1::get_joint_forces()
 {
+    std::scoped_lock lock(state_mutex_);
     return tau_measured_;
 }
 
@@ -584,7 +863,7 @@ VectorXd DriverUnitreeZ1::get_joint_forces()
  */
 double DriverUnitreeZ1::get_gripper_position()
 {
-    return gripper_position_measured_;
+    return _get_measured_gripper_position();
 }
 
 
@@ -626,12 +905,16 @@ void DriverUnitreeZ1::move_to_initial_configuration_when_initialized(const bool 
  */
 void DriverUnitreeZ1::move_to_target_joint_positions(const VectorXd &q_target)
 {
+    if (q_target.size() != kNumArmJoints)
+        throw std::invalid_argument(std::string(__func__) + ": expected a vector of size 6, got size "
+                                    + std::to_string(q_target.size()));
+
     if (current_status_ == STATUS::INITIALIZED && mode_ == MODE::None)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, true, kBlockingMoveTimeoutSec);
     }else if( mode_ == MODE::PositionControl && current_status_ == STATUS::CONNECTED)
     {
-        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, st_break_loops_);
+        _move_robot_to_target_joint_positions(q_target, 0.1, 0.01, true, kBlockingMoveTimeoutSec);
     }
     else
     {
@@ -642,11 +925,14 @@ void DriverUnitreeZ1::move_to_target_joint_positions(const VectorXd &q_target)
 
 /**
  * @brief DriverUnitreeZ1::set_target_joint_positions sets the target joint positions.
- * @param target_joint_positions_rad The target joint positions in radians.
+ * @param target_joint_positions_rad The target joint positions in radians. This vector must be 6x1.
  */
 void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_positions_rad)
 {
-    std::scoped_lock lock(mutex_target_joint_positions_); // Locks acquired
+    if (target_joint_positions_rad.size() != kNumArmJoints)
+        throw std::invalid_argument(std::string(__func__) + ": expected a vector of size 6, got size "
+                                    + std::to_string(target_joint_positions_rad.size()));
+    std::scoped_lock lock(target_mutex_); // Locks acquired
     target_joint_positions_ = target_joint_positions_rad;
 }
 
@@ -657,17 +943,20 @@ void DriverUnitreeZ1::set_target_joint_positions(const VectorXd &target_joint_po
  */
 VectorXd DriverUnitreeZ1::get_target_joint_positions()
 {
-    std::scoped_lock lock(mutex_target_joint_positions_); // Locks acquired
+    std::scoped_lock lock(target_mutex_); // Locks acquired
     return target_joint_positions_;
 }
 
 /**
  * @brief DriverUnitreeZ1::set_target_joint_velocities sets the target joint velocities.
- * @param target_joint_velocities_rad_s The target joint velocities in rad/s.
+ * @param target_joint_velocities_rad_s The target joint velocities in rad/s. This vector must be 6x1.
  */
 void DriverUnitreeZ1::set_target_joint_velocities(const VectorXd &target_joint_velocities_rad_s)
 {
-    std::scoped_lock lock(mutex_target_joint_velocities_);
+    if (target_joint_velocities_rad_s.size() != kNumArmJoints)
+        throw std::invalid_argument(std::string(__func__) + ": expected a vector of size 6, got size "
+                                    + std::to_string(target_joint_velocities_rad_s.size()));
+    std::scoped_lock lock(target_mutex_);
     target_joint_velocities_ = target_joint_velocities_rad_s;
 }
 
@@ -677,7 +966,7 @@ void DriverUnitreeZ1::set_target_joint_velocities(const VectorXd &target_joint_v
  */
 VectorXd DriverUnitreeZ1::get_target_joint_velocities()
 {
-    std::scoped_lock lock(mutex_target_joint_velocities_);
+    std::scoped_lock lock(target_mutex_);
     return target_joint_velocities_;
 }
 
@@ -687,11 +976,10 @@ VectorXd DriverUnitreeZ1::get_target_joint_velocities()
  * @brief DriverUnitreeZ1::set_target_gripper_position sets the gripper position when the operation mode is PositionControl.
  * @param target_gripper_position The target gripper position in radians. If the robot is correctly started following the official instructions,
  *                      a value of zero represents a closed gripper. A value lower than zero is to open the gripper.
- *                      Positive values are ignored.
  */
 void DriverUnitreeZ1::set_target_gripper_position(const double &target_gripper_position)
 {
-    std::scoped_lock lock(mutex_target_gripper_position_);
+    std::scoped_lock lock(target_mutex_);
     target_gripper_position_ = target_gripper_position;
 }
 
@@ -701,7 +989,7 @@ void DriverUnitreeZ1::set_target_gripper_position(const double &target_gripper_p
  */
 double DriverUnitreeZ1::get_target_gripper_position()
 {
-    std::scoped_lock lock(mutex_target_gripper_position_);
+    std::scoped_lock lock(target_mutex_);
     return target_gripper_position_;
 }
 
@@ -712,8 +1000,11 @@ double DriverUnitreeZ1::get_target_gripper_position()
  */
 void DriverUnitreeZ1::set_target_joint_positions_with_gripper(const VectorXd &target_joint_positions_with_gripper_rad)
 {
-    set_target_joint_positions(target_joint_positions_with_gripper_rad.head(6));
-    set_target_gripper_position(target_joint_positions_with_gripper_rad(6));
+    if (target_joint_positions_with_gripper_rad.size() != kNumArmJoints+1)
+        throw std::invalid_argument(std::string(__func__) + ": expected a vector of size 7, got size "
+                                    + std::to_string(target_joint_positions_with_gripper_rad.size()));
+    set_target_joint_positions(target_joint_positions_with_gripper_rad.head(kNumArmJoints));
+    set_target_gripper_position(target_joint_positions_with_gripper_rad(kNumArmJoints));
 }
 
 
@@ -723,7 +1014,10 @@ void DriverUnitreeZ1::set_target_joint_positions_with_gripper(const VectorXd &ta
  */
 void DriverUnitreeZ1::set_target_joint_velocities_with_gripper(const VectorXd &target_joint_velocities_with_gripper_rad)
 {
-    set_target_joint_velocities(target_joint_velocities_with_gripper_rad.head(6));
+    if (target_joint_velocities_with_gripper_rad.size() != kNumArmJoints+1)
+        throw std::invalid_argument(std::string(__func__) + ": expected a vector of size 7, got size "
+                                    + std::to_string(target_joint_velocities_with_gripper_rad.size()));
+    set_target_joint_velocities(target_joint_velocities_with_gripper_rad.head(kNumArmJoints));
 }
 
 /**
@@ -732,6 +1026,7 @@ void DriverUnitreeZ1::set_target_joint_velocities_with_gripper(const VectorXd &t
  */
 VectorXd DriverUnitreeZ1::get_joint_positions_with_gripper()
 {
+    std::scoped_lock lock(state_mutex_);
     VectorXd joint_positions_with_gripper = VectorXd::Zero(7);
     joint_positions_with_gripper << q_measured_(0), q_measured_(1), q_measured_(2),
                                     q_measured_(3), q_measured_(4), q_measured_(5), gripper_position_measured_;

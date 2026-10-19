@@ -4,6 +4,7 @@
 #include <sas_common/sas_common.hpp>
 #include <sas_core/eigen3_std_conversions.hpp>
 #include <sas_robot_driver_unitree_z1/sas_robot_driver_unitree_z1.hpp>
+#include <sas_core/sas_shutdown_signaler.hpp>
 #include <dqrobotics/utils/DQ_Math.h>
 
 
@@ -13,6 +14,7 @@
 #include<signal.h>
 
 static std::atomic_bool kill_this_process(false);
+static std::shared_ptr<sas::ShutdownSignaler> shutdown_signaler = std::make_shared<sas::ShutdownSignaler>(&kill_this_process);
 
 void sig_int_handler(int);
 
@@ -65,13 +67,13 @@ int main(int argc, char** argv)
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Parameters OK.");
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverUnitreeZ1.");
         auto robot_driver_unitree_z1 = std::make_shared<sas::RobotDriverUnitreeZ1>(configuration,
-                                                                                   &kill_this_process);
+                                                                                   shutdown_signaler);
 
         RCLCPP_INFO_STREAM_ONCE(node->get_logger(), "::Instantiating RobotDriverROS.");
         sas::RobotDriverROS robot_driver_ros(node,
                                              robot_driver_unitree_z1,
                                              robot_driver_ros_configuration,
-                                             &kill_this_process);
+                                             shutdown_signaler);
         robot_driver_ros.control_loop();
     }
     catch (const std::exception& e)

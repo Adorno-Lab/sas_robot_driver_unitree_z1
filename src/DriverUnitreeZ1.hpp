@@ -23,9 +23,10 @@ Contributors:
 #pragma once
 #include <vector>
 #include <atomic>
-#include <thread>
 #include <dqrobotics/DQ.h>
 #include <dqrobotics/solvers/DQ_QPOASESSolver.h>
+#include <marinholab/sas/core/sas_shutdown_signaler.hpp>
+#include <marinholab/sas/core/sas_thread_manager.hpp>
 #include <memory>
 #include <mutex>
 
@@ -34,6 +35,20 @@ using namespace Eigen;
 
 
 
+/**
+ * @brief Driver for the Unitree Z1 arm (and the optional Unitree gripper), built on the Unitree Z1 SDK.
+ *
+ * @details Threading model:
+ *          - The SDK runs its own UDP send/receive thread (unitreeArm::sendRecvThread), started in connect().
+ *          - state_thread_ (a ThreadManager) only reads the robot state. It runs from connect() until a
+ *            control mode takes over in initialize() (or for the whole session in MODE::None).
+ *          - control_thread_ (a ThreadManager) reads the robot state and commands the robot according to
+ *            the selected MODE. It runs from initialize() until deinitialize().
+ *          - The blocking moves (initial configuration in initialize(), home configuration in deinitialize())
+ *            run in the caller thread, and never while control_thread_ is running.
+ *          The measured state is guarded by state_mutex_ and the targets by target_mutex_, so the getters and
+ *          setters are safe to call from any thread.
+ */
 class DriverUnitreeZ1
 {
 public:
@@ -52,16 +67,16 @@ public:
         VelocityControl,
         ForceControl,
     };
-protected:
-    std::atomic_bool* st_break_loops_;
 private:
     class Impl;
     std::shared_ptr<Impl> impl_;
 
+    std::shared_ptr<marinholab::sas::core::ShutdownSignaler> shutdown_signaler_;
+
     STATUS current_status_{STATUS::IDLE};
     MODE mode_{MODE::None};
     std::string status_msg_;
-    double T_;
+    double T_{0.002};
 
     std::unique_ptr<DQ_QPOASESSolver> solver_;
     MatrixXd H_;
@@ -77,14 +92,42 @@ private:
     VectorXd q_min_ = (VectorXd(6) << -2.6180, 0, -2.7925, -1.3963, -1.4835, -2.7925).finished();
     VectorXd q_max_ = (VectorXd(6) <<  2.6180, 3.1416, 0, 1.3963, 1.4835, 2.7925).finished();
     VectorXd q_dot_max_ = (VectorXd(6) << 3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416).finished();
+    // Gripper limits in radians. Zero is the closed gripper and negative values open it. -0.6981 rad = -40 deg.
+    double gripper_min_{-0.6981};
+    double gripper_max_{0.0};
 
-    VectorXd q_ni_ = VectorXd::Zero(6); //For numerical integrations
+    //--------------Measured robot state (guarded by state_mutex_)--------------------
+    std::mutex state_mutex_;
     VectorXd q_measured_ = VectorXd::Zero(6);
     VectorXd q_dot_measured_ = VectorXd::Zero(6);
     VectorXd q_dot_dot_measured_ = VectorXd::Zero(6);
     VectorXd tau_measured_ = VectorXd::Zero(6);
-    VectorXi motor_temperatures_;
+    // Motor status. These vectors have one entry per motor (8 entries for 7 joints, because one joint
+    // is driven by two motors), so the motor index is not the joint index. The last entry is the gripper.
+    std::vector<int> motor_temperatures_;
     std::vector<uint8_t>  errorstate_;
+    std::vector<uint8_t>  motor_connection_state_;
+    // Motor health tracking, only used by _check_motor_health().
+    std::vector<uint8_t> last_reported_errorstate_;
+    std::vector<uint8_t> last_reported_motor_connection_state_;
+    std::vector<int> consecutive_motor_connection_faults_;
+    double gripper_position_measured_{0};
+    double gripper_velocity_measured_{0};
+    double gripper_torque_measured_{0};
+    //---------------------------------------------------------------------------------
+
+    //--------------Targets (guarded by target_mutex_)---------------------------------
+    // Based on https://github.com/MarinhoLab/sas_robot_driver_ur/blob/main/src/driver_ur_joint_positions_manager.hpp
+    std::mutex target_mutex_;
+    VectorXd target_joint_positions_;
+    VectorXd target_joint_velocities_;
+    double target_gripper_position_{0};
+    //---------------------------------------------------------------------------------
+
+    // Numerical integration state. Only used by one thread at a time: by the blocking moves
+    // in the caller thread, or by control_thread_ while it is running.
+    VectorXd q_ni_ = VectorXd::Zero(6);
+    double q_gripper_ni_{0};
 
     const VectorXd FORWARD_CONFIGURATION_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
     VectorXd initial_configuration_ = (VectorXd(6) << 0.0, 1.5, -1.0, -0.54, 0.0, 0.0).finished();
@@ -93,69 +136,70 @@ private:
     void _show_status();
     bool verbosity_;
 
+    void _sample_robot_state();
     void _update_q_for_numerical_integration();
-
-    //--------------Mutex for target_joint positions--------------------
-    // Based on https://github.com/MarinhoLab/sas_robot_driver_ur/blob/main/src/driver_ur_joint_positions_manager.hpp
-
-    std::mutex mutex_target_joint_positions_;
-    std::mutex mutex_target_joint_velocities_;
-    std::mutex mutex_target_gripper_position_;
-    //-------------------------------------------------------------------
-    VectorXd target_joint_positions_;
-    VectorXd target_joint_velocities_;
-
 
     VectorXd initial_robot_configuration_;
     void _set_driver_mode(const MODE& mode);
 
     void _update_robot_state();
+    void _check_motor_health();
+    std::atomic_bool motor_fault_detected_{false};
+    VectorXd _get_measured_joint_positions();
+    double _get_measured_gripper_position();
 
-    double q_gripper_ni_{0}; // For numerical integration;
-    double gripper_position_measured_;
-    double gripper_velocity_measured_;
-    double gripper_torque_measured_;
-    double target_gripper_position_{0};
     bool gripper_attached_;
     double gain_gripper_{1.0};
 
+    bool _should_shutdown() const;
 
 
     //-------To handle the threads-----------------
-    void _echo_robot_state_mode();
-    std::thread echo_robot_state_mode_thread_;
-    void _start_echo_robot_state_mode_thread();
-    std::atomic<bool> finish_echo_robot_state_;
-    void _finish_echo_robot_state();
+    std::unique_ptr<marinholab::sas::core::ThreadManager> state_thread_;
+    void _start_state_thread();
+    void _stop_state_thread();
 
+    std::unique_ptr<marinholab::sas::core::ThreadManager> control_thread_;
+    void _start_control_thread();
+    void _stop_control_thread();
+    void _control_loop_callback();
+    void _joint_position_control_step();
+    void _joint_raw_position_control_step();
+    void _gripper_control_step();
+    void _hold_last_command();
+    VectorXd last_commanded_joint_positions_ = VectorXd::Zero(6);
 
-    void _joint_position_control_mode();
-    std::thread joint_position_control_mode_thread_;
-    void _start_joint_position_control_thread();
-    std::atomic<bool> finish_motion_;
-    void _finish_motion();
+    void _send_arm_command(const VectorXd& q, const VectorXd& q_dot);
+    void _send_gripper_command(const double& q_gripper, const double& q_gripper_dot);
 
-    void _start_raw_joint_position_control_thread();
-    std::thread joint_raw_position_control_mode_thread_;
-    void _joint_raw_position_control_mode();
-
-    void _move_robot_to_target_joint_positions(const VectorXd& q_target,
+    bool _move_robot_to_target_joint_positions(const VectorXd& q_target,
                                                const double& gain,
                                                const double& error_norm,
-                                               std::atomic_bool* break_loop);
+                                               const bool& stop_on_shutdown,
+                                               const double& timeout_sec);
 
 
 public:
     DriverUnitreeZ1() = delete;
     DriverUnitreeZ1(const DriverUnitreeZ1&) = delete;
     DriverUnitreeZ1& operator= (const DriverUnitreeZ1&) = delete;
+    DriverUnitreeZ1(const std::shared_ptr<marinholab::sas::core::ShutdownSignaler>& shutdown_signaler,
+                    const MODE& mode = MODE::None,
+                    const bool& gripper_attached = true,
+                    const bool& verbosity = true,
+                    const double&  open_loop_joint_control_gain = 0.3);
+
+    [[deprecated("Use DriverUnitreeZ1(const std::shared_ptr<ShutdownSignaler>&, ...) instead.")]]
     DriverUnitreeZ1(std::atomic_bool* st_break_loops,
                     const MODE& mode = MODE::None,
                     const bool& gripper_attached = true,
                     const bool& verbosity = true,
                     const double&  open_loop_joint_control_gain = 0.3);
 
-    ~DriverUnitreeZ1() = default;
+    ~DriverUnitreeZ1();
+
+    void set_joint_limits_with_gripper(const VectorXd& q_min_with_gripper_rad,
+                                       const VectorXd& q_max_with_gripper_rad);
 
     void connect();
     void initialize();
