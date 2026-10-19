@@ -1,6 +1,5 @@
 #include "DriverUnitreeZ1.hpp"
 #include "unitree_arm_sdk/control/unitreeArm.h"
-#include "constraints_manager.hpp"
 #include <marinholab/sas/core/sas_clock.hpp>
 #include <algorithm>
 #include <cstdio>
@@ -39,7 +38,6 @@ class DriverUnitreeZ1::Impl
 public:
     std::shared_ptr<UNITREE_ARM::unitreeArm> arm_;
     std::shared_ptr<UNITREE_ARM::CtrlComponents> ctrlComp_;
-    std::unique_ptr<Capybara::ConstraintsManager> cm_;
     Impl()
     {
 
@@ -103,8 +101,9 @@ DriverUnitreeZ1::DriverUnitreeZ1(const std::shared_ptr<marinholab::sas::core::Sh
     status_msg_ = std::string("Idle.");
 
     H_  = MatrixXd::Identity(kNumArmJoints, kNumArmJoints);
-    I_  = MatrixXd::Identity(kNumArmJoints, kNumArmJoints);
-    impl_->cm_ = std::make_unique<Capybara::ConstraintsManager>(kNumArmJoints);
+    const MatrixXd I = MatrixXd::Identity(kNumArmJoints, kNumArmJoints);
+    A_ = MatrixXd(4*kNumArmJoints, kNumArmJoints);
+    A_ << -I, I, -I, I;
     solver_ = std::make_unique<DQ_QPOASESSolver>();
 
     _set_driver_mode(mode);
@@ -187,18 +186,14 @@ std::tuple<VectorXd, VectorXd> DriverUnitreeZ1::_compute_control_inputs(VectorXd
     VectorXd f = 2*gain*(q-qtarget);
     MatrixXd Aeq;
     VectorXd beq;
-    VectorXd q_dot_min = -q_dot_max_;
-    impl_->cm_->add_inequality_constraint(-I_, -nq*(-(q-q_min_)));
-    impl_->cm_->add_inequality_constraint( I_, -nq*( (q-q_max_)));
-    impl_->cm_->add_inequality_constraint(-I_,  -q_dot_min);
-    impl_->cm_->add_inequality_constraint( I_,   q_dot_max_);
-    MatrixXd A;
-    VectorXd b;
-    auto inequality_constraints = impl_->cm_->get_inequality_constraints();
-    A = std::get<0>(inequality_constraints);
-    b = std::get<1>(inequality_constraints);
-    //auto [A, b] = impl_->cm_->get_inequality_constraints(); C++17
-    VectorXd u = solver_->solve_quadratic_program(H_, f, A, b, Aeq, beq);
+    // Joint limit constraints A_*u <= b, with A_ = [-I; I; -I; I]:
+    //   -u <= nq*(q - q_min)    (lower configuration limit)
+    //    u <= nq*(q_max - q)    (upper configuration limit)
+    //   -u <= q_dot_max         (lower configuration velocity limit)
+    //    u <= q_dot_max         (upper configuration velocity limit)
+    VectorXd b(4*kNumArmJoints);
+    b << nq*(q-q_min_), nq*(q_max_-q), q_dot_max_, q_dot_max_;
+    VectorXd u = solver_->solve_quadratic_program(H_, f, A_, b, Aeq, beq);
     q = q + T_*u;
     return {q, u};
 }

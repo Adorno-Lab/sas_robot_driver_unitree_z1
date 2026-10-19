@@ -80,7 +80,9 @@ private:
 
     std::unique_ptr<DQ_QPOASESSolver> solver_;
     MatrixXd H_;
-    MatrixXd I_;
+    // Constant matrix of the joint limit constraints A_*u <= b, with A_ = [-I; I; -I; I].
+    // See _compute_control_inputs() for b.
+    MatrixXd A_;
 
     double open_loop_joint_control_gain_{0.3};
 

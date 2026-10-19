@@ -36,7 +36,6 @@ add_library(${PROJECT_NAME} SHARED
     src/sas_robot_driver_unitree_z1.cpp
     src/DriverUnitreeZ1.cpp
     src/DriverUnitreeZ1.hpp
-    src/constraints_manager.cpp
     )
 target_link_libraries(${PROJECT_NAME}
     marinholab::sas::core
