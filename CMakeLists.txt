@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION VERSION 3.22...3.26)
+cmake_minimum_required(VERSION 3.22...3.26)
 project(sas_robot_driver_unitree_z1)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -13,7 +13,7 @@ find_package(sas_core REQUIRED)
 find_package(sas_common REQUIRED)
 find_package(sas_robot_driver REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(rclcpp REQUIRED)
+find_package(marinholab_sas_core REQUIRED)
 
 ##########################################################
 ################## NOT ROS2 libraries  ###################
@@ -36,9 +36,9 @@ add_library(${PROJECT_NAME} SHARED
     src/sas_robot_driver_unitree_z1.cpp
     src/DriverUnitreeZ1.cpp
     src/DriverUnitreeZ1.hpp
-    src/constraints_manager.cpp
     )
 target_link_libraries(${PROJECT_NAME}
+    marinholab::sas::core
     Z1_SDK_${CMAKE_SYSTEM_PROCESSOR}
     qpOASES
 )
@@ -59,13 +59,14 @@ target_include_directories(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME}
     PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${UNITREE_Z1_SDK_DIR}/include
+    $<BUILD_INTERFACE:${UNITREE_Z1_SDK_DIR}/include>
     )
 
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
     sas_core
+    marinholab_sas_core
     std_msgs
     Eigen3
     rclcpp
@@ -147,6 +148,13 @@ endif()
 install(DIRECTORY
   launch
   DESTINATION share/${PROJECT_NAME}/
+)
+
+# Install the Z1 SDK library next to the driver library, so that the installed
+# node does not depend on LD_LIBRARY_PATH pointing to the source tree.
+install(
+    FILES ${UNITREE_Z1_SDK_DIR}/lib/libZ1_SDK_${CMAKE_SYSTEM_PROCESSOR}.so
+    DESTINATION lib
 )
 
 ament_package()

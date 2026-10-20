@@ -3,8 +3,6 @@
 #include "DriverUnitreeZ1.hpp"
 #include <memory>
 #include <sas_core/eigen3_std_conversions.hpp>
-#include <std_msgs/msg/bool.hpp>
-#include <rclcpp/rclcpp.hpp>
 
 namespace sas
 {
@@ -14,8 +12,6 @@ class RobotDriverUnitreeZ1::Impl
 
 public:
     std::shared_ptr<DriverUnitreeZ1> unitree_z1_driver_;
-
-    rclcpp:: Subscription<std_msgs::msg::Bool>::SharedPtr subscriber_stop_;
     Impl()
     {
 
@@ -31,8 +27,8 @@ RobotDriverUnitreeZ1::~RobotDriverUnitreeZ1()
 }
 
 RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
-                                           std::atomic_bool *break_loops):
-    RobotDriver(break_loops),
+                                           const std::shared_ptr<ShutdownSignaler>& shutdown_signaler):
+    RobotDriver(shutdown_signaler),
     configuration_(configuration)
 {
     impl_ = std::make_unique<RobotDriverUnitreeZ1::Impl>();
@@ -47,12 +43,28 @@ RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configurati
         throw std::runtime_error("The PositionControl or RawPositionControl modes are the only ones supported!");
 
 
-    impl_->unitree_z1_driver_ = std::make_shared<DriverUnitreeZ1>(break_loops,
+    impl_->unitree_z1_driver_ = std::make_shared<DriverUnitreeZ1>(shutdown_signaler,
                                                                   mode,
                                                                   configuration.gripper_attached,
                                                                   configuration.verbosity,
                                                                   configuration.open_loop_joint_control_gain);
+    // The driver clamps every command to these limits. It throws if they are inconsistent.
+    impl_->unitree_z1_driver_->set_joint_limits_with_gripper(std::get<0>(configuration.joint_limits),
+                                                             std::get<1>(configuration.joint_limits));
     joint_limits_ = configuration.joint_limits;
+}
+
+/**
+ * @brief RobotDriverUnitreeZ1::RobotDriverUnitreeZ1 deprecated constructor that uses a raw pointer as the shutdown signal.
+ *          The pointer is wrapped in a ShutdownSignaler, so the external flag and the signaler stay in sync.
+ * @param configuration The driver configuration.
+ * @param break_loops The external flag used to break the internal loops.
+ */
+RobotDriverUnitreeZ1::RobotDriverUnitreeZ1(const RobotDriverUnitreeZ1Configuration &configuration,
+                                           std::atomic_bool *break_loops):
+    RobotDriverUnitreeZ1(configuration, std::make_shared<ShutdownSignaler>(break_loops))
+{
+
 }
 
 
@@ -136,8 +148,8 @@ void RobotDriverUnitreeZ1::initialize()
  */
 void RobotDriverUnitreeZ1::deinitialize()
 {
-    //To force the thread to shutdown if it hasn't already done so
-    *break_loops_ = true;
+    //To force the threads to shutdown if they haven't already done so
+    shutdown_signaler_->shutdown();
     impl_->unitree_z1_driver_->deinitialize();
 }
 
